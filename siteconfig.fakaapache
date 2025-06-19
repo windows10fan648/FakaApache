@@ -1,0 +1,6 @@
+# FakaApache site configuration
+
+server_name = localhost
+port = 8080
+root_directory = www
+index_file = index.html

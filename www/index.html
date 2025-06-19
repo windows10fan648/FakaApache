@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>FakaApache Debian Default Page</title>
+    <style>
+        body {
+            font-family: Arial, Helvetica, sans-serif;
+            background-color: #ffffff;
+            color: #000;
+            margin: 0;
+            padding: 40px 0;
+            text-align: center;
+        }
+        #container {
+            max-width: 600px;
+            margin: 0 auto;
+            border: 1px solid #d0d0d0;
+            padding: 20px 40px 40px 40px;
+            box-shadow: 0 0 20px #ccc;
+        }
+        img {
+            max-width: 150px;
+            margin-bottom: 20px;
+        }
+        h1 {
+            font-weight: normal;
+            font-size: 32px;
+            margin-bottom: 10px;
+        }
+        p {
+            font-size: 16px;
+            line-height: 1.5;
+            margin-top: 0;
+            margin-bottom: 30px;
+        }
+        a {
+            color: #0071bc;
+            text-decoration: none;
+            font-weight: bold;
+        }
+        a:hover {
+            text-decoration: underline;
+        }
+        footer {
+            font-size: 14px;
+            color: #666;
+            margin-top: 40px;
+            border-top: 1px solid #d0d0d0;
+            padding-top: 15px;
+        }
+    </style>
+</head>
+<body>
+    <div id="container">
+        <img src="https://httpd.apache.org/images/apache_logo_wide.png" alt="FakaApache HTTP Server" />
+        <h1>FakaApache Debian Default Page</h1>
+        <p>
+            This is the default welcome page used to test the correct operation of the FakaApache server
+            after installation on Debian systems.
+        </p>
+        <p>
+            If you can see this page, it means that the FakaApache web server installed at this site is working properly.
+        </p>
+        <p>
+            You should replace this page with your own information as soon as possible.
+        </p>
+        <p>
+            For configuration information, see the
+            <a href="https://httpd.apache.org/docs/2.4/">Apache Documentation</a>.
+        </p>
+    </div>
+    <footer>
+        Server at localhost Port 8080
+    </footer>
+</body>
+</html>
