@@ -1,6 +1,7 @@
 # FakaApache site configuration
-
+# Use 0.0.0.0 only when the server must accept connections from other hosts.
 server_name = localhost
+bind_address = 127.0.0.1
 port = 8080
 root_directory = www
 index_file = index.html
