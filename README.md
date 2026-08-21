@@ -2,6 +2,10 @@
 
 **FakaApache** is a small, educational HTTP/1.x static-file server written in C++17. It is intended for learning how TCP sockets, HTTP request parsing, response headers, static-file delivery, and basic connection limits fit together. It is **not** a replacement for Apache, Nginx, Caddy, or another production web server.
 
+## Downloads and releases
+
+Prebuilt Windows packages are published on the [GitHub Releases page](https://github.com/windows10fan648/FakaApache/releases). The recommended download is the portable Windows ZIP, which contains the executable, its default configuration, the `www` directory, and this README. Verify every downloaded archive against its accompanying SHA-256 checksum before use. [RELEASES.md](RELEASES.md) records the available assets and Windows verification command.
+
 ## Build and run
 
 A C++17 compiler and POSIX-compatible operating system are required. Build the server with the following command.
