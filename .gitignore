@@ -1,2 +1,7 @@
 # Local build artifacts
 fakaapache
+fakaapache.exe
+
+# Code::Blocks generated output
+bin/
+obj/

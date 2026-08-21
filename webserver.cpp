@@ -1,10 +1,8 @@
-#include <arpa/inet.h>
 #include <algorithm>
 #include <atomic>
 #include <charconv>
 #include <cerrno>
 #include <cctype>
-#include <chrono>
 #include <csignal>
 #include <cstring>
 #include <filesystem>
@@ -19,12 +17,21 @@
 #include <string_view>
 #include <thread>
 #include <unordered_map>
-#include <system_error>
+#include <utility>
 
+#ifdef _WIN32
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <winsock2.h>
+#include <ws2tcpip.h>
+#else
+#include <arpa/inet.h>
 #include <netinet/in.h>
 #include <sys/socket.h>
 #include <sys/time.h>
 #include <unistd.h>
+#endif
 
 namespace fs = std::filesystem;
 
@@ -35,23 +42,125 @@ constexpr std::uintmax_t kMaxFileBytes = 10 * 1024 * 1024;
 constexpr std::size_t kMaxConcurrentClients = 64;
 constexpr int kClientTimeoutSeconds = 5;
 
+#ifdef _WIN32
+using SocketHandle = SOCKET;
+using SocketResult = int;
+constexpr SocketHandle kInvalidSocket = INVALID_SOCKET;
+constexpr int kSocketError = SOCKET_ERROR;
+constexpr int kSendFlags = 0;
+#else
+using SocketHandle = int;
+using SocketResult = ssize_t;
+constexpr SocketHandle kInvalidSocket = -1;
+constexpr int kSocketError = -1;
+constexpr int kSendFlags = MSG_NOSIGNAL;
+#endif
+
 std::mutex cout_mutex;
 std::atomic<std::size_t> active_clients{0};
 
+int last_socket_error() {
+#ifdef _WIN32
+    return WSAGetLastError();
+#else
+    return errno;
+#endif
+}
+
+std::string socket_error_message(int error) {
+#ifdef _WIN32
+    return "Winsock error " + std::to_string(error);
+#else
+    return std::strerror(error);
+#endif
+}
+
+bool is_interrupted_error(int error) {
+#ifdef _WIN32
+    return error == WSAEINTR;
+#else
+    return error == EINTR;
+#endif
+}
+
+bool is_timeout_error(int error) {
+#ifdef _WIN32
+    return error == WSAETIMEDOUT || error == WSAEWOULDBLOCK;
+#else
+    return error == EAGAIN || error == EWOULDBLOCK;
+#endif
+}
+
+void close_socket(SocketHandle socket) {
+    if (socket == kInvalidSocket) {
+        return;
+    }
+#ifdef _WIN32
+    closesocket(socket);
+#else
+    close(socket);
+#endif
+}
+
+bool set_reuse_address(SocketHandle socket) {
+    const int option = 1;
+#ifdef _WIN32
+    return setsockopt(socket, SOL_SOCKET, SO_REUSEADDR, reinterpret_cast<const char*>(&option),
+                      static_cast<int>(sizeof(option))) != kSocketError;
+#else
+    return setsockopt(socket, SOL_SOCKET, SO_REUSEADDR, &option, sizeof(option)) != kSocketError;
+#endif
+}
+
+class NetworkRuntime {
+public:
+    NetworkRuntime() = default;
+
+    bool initialize() {
+#ifdef _WIN32
+        WSADATA data{};
+        const int result = WSAStartup(MAKEWORD(2, 2), &data);
+        if (result != 0) {
+            startup_error_ = result;
+            return false;
+        }
+        initialized_ = true;
+#endif
+        return true;
+    }
+
+    [[nodiscard]] int startup_error() const {
+        return startup_error_;
+    }
+
+    ~NetworkRuntime() {
+#ifdef _WIN32
+        if (initialized_) {
+            WSACleanup();
+        }
+#endif
+    }
+
+    NetworkRuntime(const NetworkRuntime&) = delete;
+    NetworkRuntime& operator=(const NetworkRuntime&) = delete;
+
+private:
+    bool initialized_ = false;
+    int startup_error_ = 0;
+};
+
 class Socket {
 public:
-    explicit Socket(int fd = -1) : fd_(fd) {}
+    explicit Socket(SocketHandle socket = kInvalidSocket) : socket_(socket) {}
 
     ~Socket() {
-        if (fd_ >= 0) {
-            close(fd_);
-        }
+        close_socket(socket_);
     }
 
     Socket(const Socket&) = delete;
     Socket& operator=(const Socket&) = delete;
 
-    Socket(Socket&& other) noexcept : fd_(other.release()) {}
+    Socket(Socket&& other) noexcept : socket_(other.release()) {}
 
     Socket& operator=(Socket&& other) noexcept {
         if (this != &other) {
@@ -60,23 +169,23 @@ public:
         return *this;
     }
 
-    [[nodiscard]] int get() const { return fd_; }
-
-    [[nodiscard]] int release() {
-        const int released_fd = fd_;
-        fd_ = -1;
-        return released_fd;
+    [[nodiscard]] SocketHandle get() const {
+        return socket_;
     }
 
-    void reset(int fd = -1) {
-        if (fd_ >= 0) {
-            close(fd_);
-        }
-        fd_ = fd;
+    [[nodiscard]] SocketHandle release() {
+        const SocketHandle released_socket = socket_;
+        socket_ = kInvalidSocket;
+        return released_socket;
+    }
+
+    void reset(SocketHandle socket = kInvalidSocket) {
+        close_socket(socket_);
+        socket_ = socket;
     }
 
 private:
-    int fd_;
+    SocketHandle socket_;
 };
 
 class ClientSlot {
@@ -180,15 +289,20 @@ bool parse_port(const std::string& value, std::uint16_t& port) {
     return true;
 }
 
-bool send_all(int socket_fd, std::string_view data) {
+bool send_all(SocketHandle socket, std::string_view data) {
     std::size_t sent = 0;
     while (sent < data.size()) {
-        const ssize_t result = send(socket_fd, data.data() + sent, data.size() - sent, MSG_NOSIGNAL);
+        const std::size_t remaining = data.size() - sent;
+        const int chunk_size = static_cast<int>(std::min(
+            remaining, static_cast<std::size_t>(std::numeric_limits<int>::max())));
+        const auto result = send(socket, data.data() + sent, chunk_size, kSendFlags);
         if (result > 0) {
             sent += static_cast<std::size_t>(result);
             continue;
         }
-        if (result < 0 && errno == EINTR) {
+
+        const int error = last_socket_error();
+        if (result == kSocketError && is_interrupted_error(error)) {
             continue;
         }
         return false;
@@ -196,7 +310,7 @@ bool send_all(int socket_fd, std::string_view data) {
     return true;
 }
 
-void send_response(int socket_fd,
+void send_response(SocketHandle socket,
                    std::string_view status,
                    std::string_view body = "",
                    std::string_view content_type = "text/plain; charset=utf-8",
@@ -210,7 +324,7 @@ void send_response(int socket_fd,
              << extra_headers
              << "\r\n"
              << body;
-    send_all(socket_fd, response.str());
+    send_all(socket, response.str());
 }
 
 enum class HeaderReadResult {
@@ -220,11 +334,11 @@ enum class HeaderReadResult {
     TimedOut,
 };
 
-HeaderReadResult read_request_headers(int socket_fd, std::string& request) {
+HeaderReadResult read_request_headers(SocketHandle socket, std::string& request) {
     char buffer[2048];
     while (request.size() < kMaxHeaderBytes) {
         const std::size_t capacity = std::min(sizeof(buffer), kMaxHeaderBytes - request.size());
-        const ssize_t bytes_received = recv(socket_fd, buffer, capacity, 0);
+        const SocketResult bytes_received = recv(socket, buffer, static_cast<int>(capacity), 0);
         if (bytes_received > 0) {
             request.append(buffer, static_cast<std::size_t>(bytes_received));
             if (request.find("\r\n\r\n") != std::string::npos) {
@@ -236,10 +350,12 @@ HeaderReadResult read_request_headers(int socket_fd, std::string& request) {
         if (bytes_received == 0) {
             return HeaderReadResult::Malformed;
         }
-        if (errno == EINTR) {
+
+        const int error = last_socket_error();
+        if (is_interrupted_error(error)) {
             continue;
         }
-        if (errno == EAGAIN || errno == EWOULDBLOCK) {
+        if (is_timeout_error(error)) {
             return HeaderReadResult::TimedOut;
         }
         return HeaderReadResult::Malformed;
@@ -433,16 +549,24 @@ bool acquire_client_slot() {
     return false;
 }
 
-void configure_client_timeout(int client_socket) {
+void configure_client_timeout(SocketHandle socket) {
+#ifdef _WIN32
+    const DWORD timeout_milliseconds = static_cast<DWORD>(kClientTimeoutSeconds * 1000);
+    const int result = setsockopt(socket, SOL_SOCKET, SO_RCVTIMEO,
+                                  reinterpret_cast<const char*>(&timeout_milliseconds),
+                                  static_cast<int>(sizeof(timeout_milliseconds)));
+#else
     timeval timeout{};
     timeout.tv_sec = kClientTimeoutSeconds;
     timeout.tv_usec = 0;
-    if (setsockopt(client_socket, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout)) < 0) {
-        log_error("Failed to set client receive timeout: " + std::string(std::strerror(errno)));
+    const int result = setsockopt(socket, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
+#endif
+    if (result == kSocketError) {
+        log_error("Failed to set client receive timeout: " + socket_error_message(last_socket_error()));
     }
 }
 
-void handle_client(int client_socket, const fs::path& canonical_root, const std::string& index_file) {
+void handle_client(SocketHandle client_socket, const fs::path& canonical_root, const std::string& index_file) {
     Socket client(client_socket);
     ClientSlot slot;
     configure_client_timeout(client.get());
@@ -511,7 +635,15 @@ void print_usage(const char* executable_name) {
 }  // namespace
 
 int main(int argc, char* argv[]) {
+#ifndef _WIN32
     std::signal(SIGPIPE, SIG_IGN);
+#endif
+
+    NetworkRuntime network_runtime;
+    if (!network_runtime.initialize()) {
+        log_error("Network initialization failed: " + socket_error_message(network_runtime.startup_error()));
+        return 1;
+    }
 
     std::string config_path = "siteconfig.fakaapache";
     for (int i = 1; i < argc; ++i) {
@@ -561,15 +693,14 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
-    Socket server(socket(AF_INET, SOCK_STREAM, 0));
-    if (server.get() < 0) {
-        log_error("Socket creation failed: " + std::string(std::strerror(errno)));
+    Socket server(::socket(AF_INET, SOCK_STREAM, IPPROTO_TCP));
+    if (server.get() == kInvalidSocket) {
+        log_error("Socket creation failed: " + socket_error_message(last_socket_error()));
         return 1;
     }
 
-    const int reuse_address = 1;
-    if (setsockopt(server.get(), SOL_SOCKET, SO_REUSEADDR, &reuse_address, sizeof(reuse_address)) < 0) {
-        log_error("Failed to set SO_REUSEADDR: " + std::string(std::strerror(errno)));
+    if (!set_reuse_address(server.get())) {
+        log_error("Failed to set SO_REUSEADDR: " + socket_error_message(last_socket_error()));
         return 1;
     }
 
@@ -581,13 +712,13 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
-    if (bind(server.get(), reinterpret_cast<const sockaddr*>(&address), sizeof(address)) < 0) {
-        log_error("Bind failed: " + std::string(std::strerror(errno)));
+    if (bind(server.get(), reinterpret_cast<const sockaddr*>(&address), sizeof(address)) == kSocketError) {
+        log_error("Bind failed: " + socket_error_message(last_socket_error()));
         return 1;
     }
 
-    if (listen(server.get(), SOMAXCONN) < 0) {
-        log_error("Listen failed: " + std::string(std::strerror(errno)));
+    if (listen(server.get(), SOMAXCONN) == kSocketError) {
+        log_error("Listen failed: " + socket_error_message(last_socket_error()));
         return 1;
     }
 
@@ -597,18 +728,19 @@ int main(int argc, char* argv[]) {
     log_info("Concurrent-client limit: " + std::to_string(kMaxConcurrentClients));
 
     while (true) {
-        const int client_socket = accept(server.get(), nullptr, nullptr);
-        if (client_socket < 0) {
-            if (errno == EINTR) {
+        const SocketHandle client_socket = accept(server.get(), nullptr, nullptr);
+        if (client_socket == kInvalidSocket) {
+            const int accept_error = last_socket_error();
+            if (is_interrupted_error(accept_error)) {
                 continue;
             }
-            log_error("Accept failed: " + std::string(std::strerror(errno)));
+            log_error("Accept failed: " + socket_error_message(accept_error));
             continue;
         }
 
         if (!acquire_client_slot()) {
             send_response(client_socket, "503 Service Unavailable");
-            close(client_socket);
+            close_socket(client_socket);
             continue;
         }
 
