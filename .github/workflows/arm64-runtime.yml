@@ -13,9 +13,19 @@ jobs:
   linux-arm64:
     if: github.event_name == 'push' || github.event_name == 'workflow_dispatch' || github.event.pull_request.merged == true
     name: Linux ARM64 runtime
+    timeout-minutes: 60
     runs-on: ubuntu-24.04-arm
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Cache vcpkg downloads
+        uses: actions/cache@v4
+        with:
+          path: build/_vcpkg-2026.10.16/downloads
+          key: vcpkg-${{ runner.os }}-arm64-linux-2026.10.16-${{ hashFiles('vcpkg.json', '.github/vcpkg-triplets/**') }}
+          restore-keys: |
+            vcpkg-${{ runner.os }}-arm64-linux-2026.10.16-
       - name: Build
         run: |
           cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DVCPKG_TARGET_TRIPLET=arm64-linux
@@ -40,11 +50,21 @@ jobs:
             kill -KILL "$server_pid" 2>/dev/null || true
             wait "$server_pid" 2>/dev/null || true
           }
-          trap cleanup EXIT
+          on_exit() {
+            status=$?
+            if [ "$status" -ne 0 ]; then cat arm64-runtime.log || true; fi
+            cleanup
+            exit "$status"
+          }
+          trap on_exit EXIT
           for attempt in $(seq 1 50); do
             if curl --silent --show-error --fail http://127.0.0.1:8080/healthz > /dev/null; then break; fi
             sleep 0.1
           done
+          if ! curl --silent --show-error --fail http://127.0.0.1:8080/healthz > /dev/null; then
+            cat arm64-runtime.log
+            exit 1
+          fi
           python3 tests/deployment_validation.py --url http://127.0.0.1:8080
           python3 tests/security_smoke.py --url http://127.0.0.1:8080
           python3 tests/soak_test.py --url http://127.0.0.1:8080/healthz --duration 300 --workers 32
@@ -52,9 +72,19 @@ jobs:
   windows-arm64:
     if: github.event_name == 'push' || github.event_name == 'workflow_dispatch' || github.event.pull_request.merged == true
     name: Windows ARM64 runtime
+    timeout-minutes: 60
     runs-on: windows-11-vs2026-arm
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Cache vcpkg downloads
+        uses: actions/cache@v4
+        with:
+          path: build/_vcpkg-2026.10.16/downloads
+          key: vcpkg-${{ runner.os }}-arm64-windows-2026.10.16-${{ hashFiles('vcpkg.json', '.github/vcpkg-triplets/**') }}
+          restore-keys: |
+            vcpkg-${{ runner.os }}-arm64-windows-2026.10.16-
       - name: Initialize ARM64 Visual C++ environment
         uses: ilammy/msvc-dev-cmd@v1
         with:
@@ -62,35 +92,56 @@ jobs:
       - name: Build
         shell: pwsh
         run: |
-          cmake -S . -B build -G Ninja -DCMAKE_CXX_COMPILER=cl -DVCPKG_TARGET_TRIPLET=arm64-windows-static
-          cmake --build build --config Release --parallel
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_COMPILER=cl -DVCPKG_TARGET_TRIPLET=arm64-windows-static
+          cmake --build build --parallel
       - name: Validate and soak test
         shell: pwsh
         run: |
           Copy-Item 'siteconfig.fakaapache' 'ci-siteconfig.fakaapache'
           Add-Content -Path 'ci-siteconfig.fakaapache' -Value "`nrate_limit_requests_per_minute = 100000`nrate_limit_burst = 1000"
-          $server = Start-Process -FilePath 'build/fakaapache.exe' -ArgumentList '--config', 'ci-siteconfig.fakaapache' -PassThru
+          $stdout = Join-Path $env:RUNNER_TEMP 'fakaapache-arm64.stdout.log'
+          $stderr = Join-Path $env:RUNNER_TEMP 'fakaapache-arm64.stderr.log'
+          $server = Start-Process -FilePath 'build/fakaapache.exe' -ArgumentList '--config', 'ci-siteconfig.fakaapache' -RedirectStandardOutput $stdout -RedirectStandardError $stderr -PassThru
           try {
               $ready = $false
               for ($attempt = 0; $attempt -lt 50; $attempt++) {
+                  if ($server.HasExited) { break }
                   curl.exe --silent --show-error --fail http://127.0.0.1:8080/healthz | Out-Null
                   if ($LASTEXITCODE -eq 0) { $ready = $true; break }
                   Start-Sleep -Milliseconds 100
               }
-              if (-not $ready) { throw 'FakaApache did not become ready.' }
+              if (-not $ready) {
+                  Get-Content $stdout -ErrorAction SilentlyContinue
+                  Get-Content $stderr -ErrorAction SilentlyContinue
+                  throw 'FakaApache did not become ready.'
+              }
               python tests/deployment_validation.py --url http://127.0.0.1:8080
               python tests/security_smoke.py --url http://127.0.0.1:8080
               python tests/soak_test.py --url http://127.0.0.1:8080/healthz --duration 300 --workers 32
+          } catch {
+              Get-Content $stdout -ErrorAction SilentlyContinue
+              Get-Content $stderr -ErrorAction SilentlyContinue
+              throw
           } finally {
-              if (-not $server.HasExited) { Stop-Process -Id $server.Id -Force }
+              if (-not $server.HasExited) { Stop-Process -Id $server.Id -Force -ErrorAction SilentlyContinue }
           }
 
   macos-arm64:
     if: github.event_name == 'push' || github.event_name == 'workflow_dispatch' || github.event.pull_request.merged == true
     name: macOS Apple Silicon runtime
+    timeout-minutes: 60
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Cache vcpkg downloads
+        uses: actions/cache@v4
+        with:
+          path: build/_vcpkg-2026.10.16/downloads
+          key: vcpkg-${{ runner.os }}-arm64-osx-2026.10.16-${{ hashFiles('vcpkg.json', '.github/vcpkg-triplets/**') }}
+          restore-keys: |
+            vcpkg-${{ runner.os }}-arm64-osx-2026.10.16-
       - name: Build
         run: |
           cmake -S . -B build -G Ninja \
@@ -118,7 +169,13 @@ jobs:
             kill -KILL "$server_pid" 2>/dev/null || true
             wait "$server_pid" 2>/dev/null || true
           }
-          trap cleanup EXIT
+          on_exit() {
+            status=$?
+            if [ "$status" -ne 0 ]; then cat arm64-runtime.log || true; fi
+            cleanup
+            exit "$status"
+          }
+          trap on_exit EXIT
           for attempt in $(seq 1 50); do
             if curl --silent --show-error --fail http://127.0.0.1:8080/healthz > /dev/null; then break; fi
             sleep 0.1
@@ -127,6 +184,10 @@ jobs:
               exit 1
             fi
           done
+          if ! curl --silent --show-error --fail http://127.0.0.1:8080/healthz > /dev/null; then
+            cat arm64-runtime.log
+            exit 1
+          fi
           python3 tests/deployment_validation.py --url http://127.0.0.1:8080
           python3 tests/security_smoke.py --url http://127.0.0.1:8080
           python3 tests/soak_test.py --url http://127.0.0.1:8080/healthz --duration 300 --workers 32

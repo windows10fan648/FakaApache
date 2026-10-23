@@ -10,16 +10,21 @@ on:
 
 permissions:
   contents: read
-  security-events: write
-  actions: read
 
 jobs:
   codeql:
     name: CodeQL C++ analysis
+    permissions:
+      contents: read
+      security-events: write
+      actions: read
+    timeout-minutes: 60
     runs-on: ubuntu-24.04
     steps:
       - name: Check out source
         uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - name: Initialize CodeQL
         uses: github/codeql-action/init@v3
@@ -39,10 +44,11 @@ jobs:
   dependency-review:
     name: Dependency review
     if: github.event_name == 'pull_request'
-    runs-on: ubuntu-24.04
     permissions:
       contents: read
       pull-requests: write
+    timeout-minutes: 15
+    runs-on: ubuntu-24.04
     steps:
       - name: Review dependency changes
         uses: actions/dependency-review-action@v4
