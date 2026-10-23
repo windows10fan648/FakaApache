@@ -57,7 +57,12 @@ jobs:
         if: matrix.platform == 'linux'
         env:
           VCPKG_DEFAULT_TRIPLET: ${{ matrix.triplet }}
-        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_COMPILER=g++ -DVCPKG_TARGET_TRIPLET=${{ matrix.triplet }}
+        run: >-
+          cmake -S . -B build -G Ninja
+          -DCMAKE_BUILD_TYPE=Release
+          -DCMAKE_CXX_COMPILER=g++
+          -DVCPKG_TARGET_TRIPLET=${{ matrix.triplet }}
+          -DVCPKG_OVERLAY_TRIPLETS=${{ github.workspace }}/.github/vcpkg-triplets
 
       - name: Configure Linux ARM64
         if: matrix.platform == 'linux-arm64'
@@ -72,6 +77,7 @@ jobs:
           -DCMAKE_C_COMPILER=aarch64-linux-gnu-gcc
           -DCMAKE_CXX_COMPILER=aarch64-linux-gnu-g++
           -DVCPKG_TARGET_TRIPLET=${{ matrix.triplet }}
+          -DVCPKG_OVERLAY_TRIPLETS=${{ github.workspace }}/.github/vcpkg-triplets
 
       - name: Configure Windows
         if: matrix.platform == 'windows'
