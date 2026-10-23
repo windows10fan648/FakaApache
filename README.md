@@ -42,6 +42,10 @@ The CMake configuration uses C++17, enables MSVC's `/W4` and `/permissive-` diag
 
 The Windows build initializes Winsock 2.2, uses `closesocket()` for socket cleanup, and links against `ws2_32`. The executable continues to read `siteconfig.fakaapache` from its working directory; run it from the repository root or provide an explicit `--config` path.
 
+## Automated releases
+
+The GitHub Actions release workflow runs when a pull request is merged into the repository, and can also be started manually. It builds the merged commit for Linux x86_64, Linux aarch64, Windows x86_64, and Windows ARM64 using CMake and vcpkg. Each build is packaged with the configuration, web root, documentation, and a SHA-256 checksum, then published as a GitHub Release.
+
 ## Configuration
 
 The configuration uses INI-style sections and `key = value` entries. Lines beginning with `#` are comments. Global settings belong in `[server]`; host-specific settings use sections such as `[vhost example.com]`.

@@ -1,0 +1,138 @@
+name: Build and release merged pull requests
+
+on:
+  pull_request:
+    types: [closed]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.merged == true
+    name: ${{ matrix.asset }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - asset: fakaapache-linux-x86_64
+            runner: ubuntu-24.04
+            platform: linux
+            triplet: x64-linux-static
+          - asset: fakaapache-linux-aarch64
+            runner: ubuntu-24.04
+            platform: linux-arm64
+            triplet: arm64-linux-static
+          - asset: fakaapache-windows-x86_64
+            runner: windows-2025
+            platform: windows
+            triplet: x64-windows-static
+            architecture: x64
+          - asset: fakaapache-windows-arm64
+            runner: windows-2025
+            platform: windows
+            triplet: arm64-windows-static
+            architecture: ARM64
+
+    steps:
+      - name: Check out merged commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.merge_commit_sha || github.sha }}
+
+      - name: Install Linux ARM64 cross compiler
+        if: matrix.platform == 'linux-arm64'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-aarch64-linux-gnu g++-aarch64-linux-gnu ninja-build
+
+      - name: Configure Linux x86_64
+        if: matrix.platform == 'linux'
+        env:
+          VCPKG_DEFAULT_TRIPLET: ${{ matrix.triplet }}
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DVCPKG_TARGET_TRIPLET=${{ matrix.triplet }}
+
+      - name: Configure Linux ARM64
+        if: matrix.platform == 'linux-arm64'
+        env:
+          VCPKG_DEFAULT_TRIPLET: ${{ matrix.triplet }}
+          VCPKG_FORCE_SYSTEM_BINARIES: '1'
+        run: >-
+          cmake -S . -B build
+          -DCMAKE_BUILD_TYPE=Release
+          -DCMAKE_SYSTEM_NAME=Linux
+          -DCMAKE_SYSTEM_PROCESSOR=aarch64
+          -DCMAKE_C_COMPILER=aarch64-linux-gnu-gcc
+          -DCMAKE_CXX_COMPILER=aarch64-linux-gnu-g++
+          -DVCPKG_TARGET_TRIPLET=${{ matrix.triplet }}
+
+      - name: Configure Windows
+        if: matrix.platform == 'windows'
+        run: >-
+          cmake -S . -B build
+          -G "Visual Studio 17 2022"
+          -A ${{ matrix.architecture }}
+          -DVCPKG_TARGET_TRIPLET=${{ matrix.triplet }}
+
+      - name: Build Linux
+        if: startsWith(matrix.platform, 'linux')
+        run: cmake --build build --config Release --parallel
+
+      - name: Build Windows
+        if: matrix.platform == 'windows'
+        run: cmake --build build --config Release --parallel
+
+      - name: Package Linux artifact
+        if: startsWith(matrix.platform, 'linux')
+        shell: bash
+        run: |
+          set -euo pipefail
+          package="${{ matrix.asset }}"
+          mkdir -p "release/${package}"
+          cp build/fakaapache "release/${package}/"
+          cp siteconfig.fakaapache README.md RELEASES.md "release/${package}/"
+          cp -R www "release/${package}/"
+          tar -C release -czf "release/${package}.tar.gz" "${package}"
+          sha256sum "release/${package}.tar.gz" > "release/${package}.tar.gz.sha256"
+
+      - name: Package Windows artifact
+        if: matrix.platform == 'windows'
+        shell: pwsh
+        run: |
+          $package = '${{ matrix.asset }}'
+          $root = Join-Path 'release' $package
+          New-Item -ItemType Directory -Force -Path $root | Out-Null
+          Copy-Item 'build/Release/fakaapache.exe' $root
+          Copy-Item 'siteconfig.fakaapache', 'README.md', 'RELEASES.md' $root
+          Copy-Item 'www' $root -Recurse
+          Compress-Archive -Path $root -DestinationPath "release/$package.zip"
+          $hash = (Get-FileHash "release/$package.zip" -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$hash  $package.zip" | Set-Content "release/$package.zip.sha256" -Encoding ASCII
+
+      - name: Upload packaged artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.asset }}
+          path: release/${{ matrix.asset }}.*
+          if-no-files-found: error
+
+  release:
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.merged == true
+    needs: build
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Download packaged artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release-assets
+          merge-multiple: true
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: fakaapache-${{ github.event.pull_request.merge_commit_sha || github.sha }}
+          name: FakaApache build ${{ github.event.pull_request.merge_commit_sha || github.sha }}
+          generate_release_notes: true
+          files: release-assets/*
