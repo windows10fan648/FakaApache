@@ -95,6 +95,62 @@ jobs:
         if: matrix.platform == 'windows'
         run: cmake --build build --config Release --parallel
 
+      - name: Validate and load-test Linux build
+        if: matrix.platform == 'linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp siteconfig.fakaapache ci-siteconfig.fakaapache
+          printf '\nrate_limit_requests_per_minute = 100000\nrate_limit_burst = 1000\n' >> ci-siteconfig.fakaapache
+          ./build/fakaapache --config ci-siteconfig.fakaapache > server-validation.log 2>&1 &
+          server_pid=$!
+          trap 'kill "$server_pid" 2>/dev/null || true; wait "$server_pid" 2>/dev/null || true' EXIT
+          for attempt in $(seq 1 50); do
+            if curl --silent --show-error --fail http://127.0.0.1:8080/healthz > /dev/null; then
+              break
+            fi
+            sleep 0.1
+            if ! kill -0 "$server_pid" 2>/dev/null; then
+              cat server-validation.log
+              exit 1
+            fi
+          done
+          python3 tests/deployment_validation.py --url http://127.0.0.1:8080
+          python3 tests/load_test.py --url http://127.0.0.1:8080/healthz --requests 200 --workers 16
+
+      - name: Validate and load-test Windows x86_64 build
+        if: matrix.platform == 'windows' && matrix.architecture == 'x64'
+        shell: pwsh
+        run: |
+          $stdout = Join-Path $env:RUNNER_TEMP 'fakaapache-validation.out.log'
+          $stderr = Join-Path $env:RUNNER_TEMP 'fakaapache-validation.err.log'
+          Copy-Item 'siteconfig.fakaapache' 'ci-siteconfig.fakaapache'
+          Add-Content -Path 'ci-siteconfig.fakaapache' -Value "`nrate_limit_requests_per_minute = 100000`nrate_limit_burst = 1000"
+          $server = Start-Process -FilePath 'build/Release/fakaapache.exe' -ArgumentList '--config', 'ci-siteconfig.fakaapache' -WorkingDirectory (Get-Location) -RedirectStandardOutput $stdout -RedirectStandardError $stderr -PassThru
+          try {
+              $ready = $false
+              for ($attempt = 0; $attempt -lt 50; $attempt++) {
+                  try {
+                      curl.exe --silent --show-error --fail http://127.0.0.1:8080/healthz | Out-Null
+                      if ($LASTEXITCODE -eq 0) {
+                          $ready = $true
+                          break
+                      }
+                  } catch {
+                      Start-Sleep -Milliseconds 100
+                  }
+                  if ($server.HasExited) {
+                      Get-Content $stdout, $stderr -ErrorAction SilentlyContinue
+                      throw 'FakaApache exited before becoming ready.'
+                  }
+              }
+              if (-not $ready) { throw 'FakaApache did not become ready.' }
+              python tests/deployment_validation.py --url http://127.0.0.1:8080
+              python tests/load_test.py --url http://127.0.0.1:8080/healthz --requests 200 --workers 16
+          } finally {
+              if (-not $server.HasExited) { Stop-Process -Id $server.Id -Force }
+          }
+
       - name: Package Linux artifact
         if: startsWith(matrix.platform, 'linux')
         shell: bash

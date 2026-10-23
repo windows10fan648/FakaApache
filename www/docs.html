@@ -126,7 +126,7 @@ auth_password = change-me</pre>
     </ul>
 
     <h2>Operational hardening</h2>
-    <p>The server validates startup configuration, limits active clients, applies receive timeouts, protects static paths, and performs a bounded graceful shutdown on <code>SIGINT</code> or <code>SIGTERM</code>. For public deployments, keep FakaApache on loopback behind Nginx and use Nginx for TLS termination, buffering, access logging, and rate controls.</p>
+    <p>The server validates startup configuration, limits active clients, applies receive timeouts, protects static paths, and performs a bounded graceful shutdown on <code>SIGINT</code> or <code>SIGTERM</code>. The <code>/healthz</code> endpoint is available for deployment probes. For public deployments, keep FakaApache on loopback behind Nginx and use Nginx for TLS termination, buffering, access logging, and rate controls.</p>
 
 </main>
 </body>

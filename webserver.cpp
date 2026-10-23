@@ -1158,6 +1158,12 @@ void handle_client(SocketHandle client_socket,
         return;
     }
 
+    if ((method == "GET" || method == "HEAD") && target == "/healthz") {
+        send_response(client.get(), "200 OK", "ok\n", "text/plain; charset=utf-8",
+                      "Cache-Control: no-store\r\n", method == "GET", tls);
+        return;
+    }
+
     if (method == "POST" && forwarding_target == nullptr) {
         send_response(client.get(), "405 Method Not Allowed", "", "text/plain; charset=utf-8", "Allow: GET, HEAD\r\n", true, tls);
         return;

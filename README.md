@@ -123,6 +123,8 @@ Credentials are stored as plaintext configuration, so protect the file and use T
 
 The server URL-decodes and canonicalizes requested paths before serving them, rejects requests that escape the configured document root, and guards against symlink escapes. It protects sends from `SIGPIPE`, limits active client handlers to 64, and handles `SIGINT`/`SIGTERM` with a bounded graceful shutdown when active requests finish.
 
+The `/healthz` endpoint returns `200 OK` and `ok` for deployment probes. The GitHub Actions release workflow starts native Linux x86_64 and Windows x86_64 builds after compilation, runs deployment validation, and performs a 200-request concurrent load smoke test. ARM64 builds are compiled and packaged but are not executed on the x86_64 runners. The security workflow runs CodeQL C++ analysis and dependency review on pull requests.
+
 These safeguards make the example safer for local experimentation, but they do not provide virtual hosting, structured logging, chunked request-body proxying, or a production-grade concurrency architecture. Do not expose it directly to the public internet. Do not configure forwarding to an untrusted or user-controlled upstream.
 
 ## Tests
