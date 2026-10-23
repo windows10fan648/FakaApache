@@ -24,7 +24,7 @@ The checked-in configuration binds only to `127.0.0.1:8080`. After starting the 
 
 ## Windows and MSVC
 
-MSVC is the recommended and supported Windows toolchain. Install Visual Studio 2022 (or newer) with the Desktop development with C++ workload and Git, then configure and build from a Developer PowerShell. CMake automatically downloads a pinned vcpkg checkout into `build/_vcpkg`, bootstraps it, and installs the OpenSSL dependency through `vcpkg.json`:
+MSVC is the recommended and supported Windows toolchain. Install Visual Studio 2022 (or newer) with the Desktop development with C++ workload and Git, then configure and build from a Developer PowerShell. CMake automatically downloads a pinned vcpkg checkout into a versioned directory under `build`, bootstraps it, and installs the OpenSSL dependency through `vcpkg.json`:
 
 ```powershell
 cmake -S . -B build -G "Visual Studio 17 2022" -A x64
