@@ -14,7 +14,8 @@ def request(base_url, path, method="GET", headers=None):
     response = connection.getresponse()
     body = response.read()
     connection.close()
-    return response.status, dict(response.getheaders()), body
+    headers = {key.lower(): value for key, value in response.getheaders()}
+    return response.status, headers, body
 
 
 def expect(condition, message):

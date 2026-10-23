@@ -16,7 +16,8 @@ def request(url, method="GET", headers=None):
     connection.request(method, path, headers=headers or {})
     response = connection.getresponse()
     body = response.read()
-    result = response.status, dict(response.getheaders()), body
+    headers = {key.lower(): value for key, value in response.getheaders()}
+    result = response.status, headers, body
     connection.close()
     return result
 
