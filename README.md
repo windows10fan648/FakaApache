@@ -24,10 +24,10 @@ The checked-in configuration binds only to `127.0.0.1:8080`. After starting the 
 
 ## Windows and MSVC
 
-MSVC is the recommended and supported Windows toolchain. Install Visual Studio 2022 (or newer) with the Desktop development with C++ workload and OpenSSL development libraries, then configure and build from a Developer PowerShell. With vcpkg, install OpenSSL using `vcpkg install openssl:x64-windows` and provide its toolchain file to CMake:
+MSVC is the recommended and supported Windows toolchain. Install Visual Studio 2022 (or newer) with the Desktop development with C++ workload and Git, then configure and build from a Developer PowerShell. CMake automatically downloads a pinned vcpkg checkout into `build/_vcpkg`, bootstraps it, and installs the OpenSSL dependency through `vcpkg.json`:
 
 ```powershell
-cmake -S . -B build -G "Visual Studio 17 2022" -A x64 -DCMAKE_TOOLCHAIN_FILE=C:/path/to/vcpkg/scripts/buildsystems/vcpkg.cmake
+cmake -S . -B build -G "Visual Studio 17 2022" -A x64
 cmake --build build --config Release
 ```
 
@@ -37,7 +37,7 @@ The executable is written to `build/Release/fakaapache.exe`. Run it from the rep
 .\build\Release\fakaapache.exe --config siteconfig.fakaapache
 ```
 
-The CMake configuration uses C++17, enables MSVC's `/W4` and `/permissive-` diagnostics, links Winsock (`ws2_32`), and requires OpenSSL for TLS support.
+The CMake configuration uses C++17, enables MSVC's `/W4` and `/permissive-` diagnostics, links Winsock (`ws2_32`), and installs OpenSSL for TLS support. The first configure requires network access and Git. To use an existing vcpkg installation instead, pass `-DFAKAAPACHE_BOOTSTRAP_VCPKG=OFF -DCMAKE_TOOLCHAIN_FILE=C:/path/to/vcpkg/scripts/buildsystems/vcpkg.cmake`.
 
 ## Scheduled for removal: MinGW-w64
 

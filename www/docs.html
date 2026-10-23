@@ -60,7 +60,7 @@
     <p>The default site listens on <code>127.0.0.1:8080</code>.</p>
 
     <h2>Build on Windows</h2>
-    <p>MSVC and CMake are the recommended Windows toolchain:</p>
+    <p>MSVC and CMake are the recommended Windows toolchain. On the first configure, CMake automatically downloads a pinned vcpkg checkout and installs OpenSSL:</p>
     <pre>cmake -S . -B build -G "Visual Studio 17 2022" -A x64
 cmake --build build --config Release</pre>
     <p>The executable is created at <code>build/Release/fakaapache.exe</code>. CMake requires OpenSSL development libraries for TLS support.</p>
