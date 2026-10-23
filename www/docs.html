@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>FakaApache Documentation</title>
+    <style>
+        :root {
+            color-scheme: light;
+            font-family: Arial, Helvetica, sans-serif;
+            color: #12314a;
+            background: #f5f9fc;
+        }
+        body {
+            margin: 0;
+            padding: 32px 20px;
+        }
+        main {
+            max-width: 860px;
+            margin: 0 auto;
+            background: #fff;
+            border: 1px solid #d5e1e8;
+            border-radius: 8px;
+            padding: 28px 36px 40px;
+            box-shadow: 0 8px 24px rgba(18, 49, 74, .08);
+        }
+        img { width: 100%; max-width: 360px; }
+        h1 { margin-bottom: 8px; }
+        h2 { margin-top: 32px; color: #07558f; }
+        h3 { color: #0877b8; }
+        p, li { line-height: 1.6; }
+        code {
+            background: #eef5f9;
+            border-radius: 3px;
+            padding: 2px 5px;
+        }
+        pre {
+            overflow-x: auto;
+            background: #102b40;
+            color: #e8f4fb;
+            border-radius: 5px;
+            padding: 16px;
+        }
+        a { color: #0877b8; font-weight: bold; }
+        table { border-collapse: collapse; width: 100%; }
+        th, td { border-bottom: 1px solid #d5e1e8; padding: 10px 8px; text-align: left; vertical-align: top; }
+        th { color: #07558f; }
+        .notice { border-left: 4px solid #f0a52b; background: #fff8e8; padding: 10px 14px; }
+    </style>
+</head>
+<body>
+<main>
+    <a href="index.html"><img src="fakaapache-logo.svg" alt="FakaApache" /></a>
+    <h1>Documentation</h1>
+    <p>FakaApache is a small educational C++17 HTTP server for static files and optional HTTP reverse-proxy forwarding.</p>
+
+    <h2>Run the server</h2>
+    <p>Run it from the project root so the default configuration can find the <code>www</code> directory:</p>
+    <pre>fakaapache.exe --config siteconfig.fakaapache</pre>
+    <p>The default site listens on <code>127.0.0.1:8080</code>.</p>
+
+    <h2>Build on Windows</h2>
+    <p>MSVC and CMake are the recommended Windows toolchain:</p>
+    <pre>cmake -S . -B build -G "Visual Studio 17 2022" -A x64
+cmake --build build --config Release</pre>
+    <p>The executable is created at <code>build/Release/fakaapache.exe</code>.</p>
+
+    <h2>Configuration</h2>
+    <table>
+        <tr><th>Setting</th><th>Default</th><th>Purpose</th></tr>
+        <tr><td><code>bind_address</code></td><td>127.0.0.1</td><td>IPv4 address on which the server listens.</td></tr>
+        <tr><td><code>port</code></td><td>8080</td><td>Listening port, from 1 through 65535.</td></tr>
+        <tr><td><code>root_directory</code></td><td>www</td><td>Directory containing static files.</td></tr>
+        <tr><td><code>index_file</code></td><td>index.html</td><td>Default file for requests ending in <code>/</code>.</td></tr>
+        <tr><td><code>server_name</code></td><td>localhost</td><td>Label shown in startup logs.</td></tr>
+    </table>
+
+    <h2>HTTP forwarding</h2>
+    <p>Set both values to forward GET requests to another HTTP application:</p>
+    <pre>forward_address = 127.0.0.1
+forward_port = 3000</pre>
+    <p>FakaApache opens one upstream connection per request and returns <code>502 Bad Gateway</code> if the upstream cannot be reached. Forwarding is intended for local or trusted services.</p>
+
+    <h2>Operational boundaries</h2>
+    <ul>
+        <li>Only GET requests are accepted.</li>
+        <li>Request headers are limited to 16 KiB and clients have a five-second receive timeout.</li>
+        <li>Static paths are canonicalized and prevented from escaping the document root.</li>
+        <li>TLS, authentication, rate limiting, compression, and production-grade proxy features are not included.</li>
+    </ul>
+    <p class="notice"><strong>MinGW-w64:</strong> compatibility support is scheduled for removal. Use MSVC and CMake for new Windows builds.</p>
+</main>
+</body>
+</html>
