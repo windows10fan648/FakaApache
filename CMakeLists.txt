@@ -1,6 +1,7 @@
 cmake_minimum_required(VERSION 3.20)
 
 option(FAKAAPACHE_BOOTSTRAP_VCPKG "Download and bootstrap vcpkg automatically" ON)
+option(FAKAAPACHE_APPLE_SILICON_OPTIMIZATIONS "Optimize Apple Silicon builds for Apple M1-class CPUs" OFF)
 set(FAKAAPACHE_VCPKG_TAG "2026.10.16" CACHE STRING "Pinned vcpkg tag used for automatic bootstrapping")
 if(FAKAAPACHE_VCPKG_TAG STREQUAL "2024.11.16")
     set(FAKAAPACHE_VCPKG_TAG "2026.10.16" CACHE STRING "Pinned vcpkg tag used for automatic bootstrapping" FORCE)
@@ -74,6 +75,12 @@ else()
     target_compile_options(fakaapache PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wshadow)
     target_compile_options(fakaapache PRIVATE $<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-pthread>)
     target_link_options(fakaapache PRIVATE $<$<NOT:$<CXX_COMPILER_ID:MSVC>>:-pthread>)
+endif()
+
+if(APPLE AND CMAKE_SYSTEM_PROCESSOR MATCHES "^(arm64|aarch64)$" AND FAKAAPACHE_APPLE_SILICON_OPTIMIZATIONS)
+    target_compile_options(fakaapache PRIVATE -mcpu=apple-m1)
+    target_link_options(fakaapache PRIVATE -mcpu=apple-m1)
+    target_compile_definitions(fakaapache PRIVATE FAKAAPACHE_APPLE_SILICON_OPTIMIZED)
 endif()
 
 if(WIN32)

@@ -65,6 +65,9 @@
 cmake --build build --config Release</pre>
     <p>The executable is created at <code>build/Release/fakaapache.exe</code>. CMake requires OpenSSL development libraries for TLS support.</p>
 
+    <h2>Build on macOS</h2>
+    <p>The release workflow builds both Intel and Apple Silicon packages. Apple Silicon builds use the <code>arm64-osx</code> vcpkg triplet and enable <code>FAKAAPACHE_APPLE_SILICON_OPTIMIZATIONS</code> for Apple M1-class CPU tuning.</p>
+
     <h2>Configuration</h2>
     <p>Configuration uses INI-style sections. Global settings belong in <code>[server]</code>; virtual-host settings use sections such as <code>[vhost example.com]</code>.</p>
     <pre>[server]

@@ -42,6 +42,10 @@ The CMake configuration uses C++17, enables MSVC's `/W4` and `/permissive-` diag
 
 The Windows build initializes Winsock 2.2, uses `closesocket()` for socket cleanup, and links against `ws2_32`. The executable continues to read `siteconfig.fakaapache` from its working directory; run it from the repository root or provide an explicit `--config` path.
 
+## macOS
+
+The release workflow builds and validates both Intel macOS (`x64-osx`) and Apple Silicon macOS (`arm64-osx`). Apple Silicon builds enable the `FAKAAPACHE_APPLE_SILICON_OPTIMIZATIONS` CMake option, which compiles and links with `-mcpu=apple-m1`.
+
 ## Automated releases
 
 The GitHub Actions release workflow runs when a pull request is merged into the repository, and can also be started manually. It builds the merged commit for Linux x86_64, Linux aarch64, Windows x86_64, and Windows ARM64 using CMake and vcpkg. Each build is packaged with the configuration, web root, documentation, and a SHA-256 checksum, then published as a GitHub Release.
