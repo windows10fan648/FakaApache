@@ -63,7 +63,7 @@
     <p>MSVC and CMake are the recommended Windows toolchain:</p>
     <pre>cmake -S . -B build -G "Visual Studio 17 2022" -A x64
 cmake --build build --config Release</pre>
-    <p>The executable is created at <code>build/Release/fakaapache.exe</code>.</p>
+    <p>The executable is created at <code>build/Release/fakaapache.exe</code>. CMake requires OpenSSL development libraries for TLS support.</p>
 
     <h2>Configuration</h2>
     <table>
@@ -73,6 +73,10 @@ cmake --build build --config Release</pre>
         <tr><td><code>root_directory</code></td><td>www</td><td>Directory containing static files.</td></tr>
         <tr><td><code>index_file</code></td><td>index.html</td><td>Default file for requests ending in <code>/</code>.</td></tr>
         <tr><td><code>server_name</code></td><td>localhost</td><td>Label shown in startup logs.</td></tr>
+        <tr><td><code>tls_certificate</code></td><td>unset</td><td>PEM certificate path; enables TLS with <code>tls_private_key</code>.</td></tr>
+        <tr><td><code>tls_private_key</code></td><td>unset</td><td>Matching PEM private-key path.</td></tr>
+        <tr><td><code>rate_limit_requests_per_minute</code></td><td>120</td><td>Token-bucket refill rate per client IP.</td></tr>
+        <tr><td><code>rate_limit_burst</code></td><td>20</td><td>Maximum immediate requests per client IP.</td></tr>
     </table>
 
     <h2>HTTP forwarding</h2>
@@ -81,11 +85,19 @@ cmake --build build --config Release</pre>
 forward_port = 3000</pre>
     <p>FakaApache opens one upstream connection per request and returns <code>502 Bad Gateway</code> if the upstream cannot be reached. GET and POST are supported; POST bodies require <code>Content-Length</code> and are limited to 10 MiB. Forwarding is intended for local or trusted services.</p>
 
+    <h2>TLS and rate limiting</h2>
+    <p>Set both PEM paths to enable TLS:</p>
+    <pre>tls_certificate = certs/server.crt
+tls_private_key = certs/server.key
+rate_limit_requests_per_minute = 120
+rate_limit_burst = 20</pre>
+    <p>Rate limiting is applied per client IP using a token bucket. TLS is disabled when either path is unset.</p>
+
     <h2>Operational boundaries</h2>
     <ul>
         <li>Request headers are limited to 64 KiB and clients have a five-second receive timeout.</li>
         <li>Static paths are canonicalized and prevented from escaping the document root.</li>
-        <li>TLS, authentication, rate limiting, compression, and production-grade proxy features are not included.</li>
+        <li>Authentication, compression, and production-grade proxy features are not included.</li>
     </ul>
     <p class="notice"><strong>MinGW-w64:</strong> compatibility support is scheduled for removal. Use MSVC and CMake for new Windows builds.</p>
 </main>

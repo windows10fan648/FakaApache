@@ -6,6 +6,14 @@ port = 8080
 root_directory = www
 index_file = index.html
 
+# Optional TLS. Set both PEM paths to enable HTTPS on the listening port.
+# tls_certificate = certs/server.crt
+# tls_private_key = certs/server.key
+
+# Per-client-IP token-bucket rate limit.
+rate_limit_requests_per_minute = 120
+rate_limit_burst = 20
+
 # Optional HTTP reverse proxy. When both values are set, GET requests are
 # forwarded to this upstream instead of being served from root_directory.
 # forward_address = 127.0.0.1

@@ -11,6 +11,7 @@
 #include <iostream>
 #include <iterator>
 #include <limits>
+#include <memory>
 #ifndef _WIN32
 #include <netdb.h>
 #endif
@@ -20,8 +21,14 @@
 #include <string>
 #include <string_view>
 #include <thread>
+#include <chrono>
 #include <unordered_map>
 #include <utility>
+
+#ifdef FAKAAPACHE_WITH_OPENSSL
+#include <openssl/err.h>
+#include <openssl/ssl.h>
+#endif
 
 #ifdef _WIN32
 #ifndef NOMINMAX
@@ -50,6 +57,14 @@ constexpr std::uintmax_t kMaxFileBytes = 10 * 1024 * 1024;
 constexpr std::size_t kMaxConcurrentClients = 64;
 constexpr int kClientTimeoutSeconds = 5;
 constexpr std::size_t kMaxRequestBodyBytes = 10 * 1024 * 1024;
+
+#ifdef FAKAAPACHE_WITH_OPENSSL
+using TlsContextHandle = SSL_CTX*;
+using TlsConnectionHandle = SSL*;
+#else
+using TlsContextHandle = void*;
+using TlsConnectionHandle = void*;
+#endif
 
 #ifdef _WIN32
 using SocketHandle = SOCKET;
@@ -324,13 +339,32 @@ bool parse_port(const std::string& value, std::uint16_t& port) {
     return true;
 }
 
-bool send_all(SocketHandle socket, std::string_view data) {
+bool parse_positive_limit(const std::string& value, std::size_t& result) {
+    unsigned long long parsed = 0;
+    const auto [parsed_end, error] = std::from_chars(value.data(), value.data() + value.size(), parsed);
+    if (error != std::errc{} || parsed_end != value.data() + value.size() || parsed == 0 ||
+        parsed > static_cast<unsigned long long>(std::numeric_limits<std::size_t>::max())) {
+        return false;
+    }
+    result = static_cast<std::size_t>(parsed);
+    return true;
+}
+
+bool send_all(SocketHandle socket, std::string_view data, TlsConnectionHandle tls = nullptr) {
     std::size_t sent = 0;
     while (sent < data.size()) {
         const std::size_t remaining = data.size() - sent;
         const int chunk_size = static_cast<int>(std::min(
             remaining, static_cast<std::size_t>(std::numeric_limits<int>::max())));
-        const auto result = send(socket, data.data() + sent, chunk_size, kSendFlags);
+        int result = 0;
+#ifdef FAKAAPACHE_WITH_OPENSSL
+        if (tls != nullptr) {
+            result = SSL_write(tls, data.data() + sent, chunk_size);
+        } else
+#endif
+        {
+            result = send(socket, data.data() + sent, chunk_size, kSendFlags);
+        }
         if (result > 0) {
             sent += static_cast<std::size_t>(result);
             continue;
@@ -350,7 +384,8 @@ void send_response(SocketHandle socket,
                    std::string_view body = "",
                    std::string_view content_type = "text/plain; charset=utf-8",
                    std::string_view extra_headers = "",
-                   bool include_body = true) {
+                   bool include_body = true,
+                   TlsConnectionHandle tls = nullptr) {
     std::ostringstream response;
     response << "HTTP/1.1 " << status << "\r\n"
              << "Content-Type: " << content_type << "\r\n"
@@ -362,7 +397,7 @@ void send_response(SocketHandle socket,
     if (include_body) {
         response << body;
     }
-    send_all(socket, response.str());
+    send_all(socket, response.str(), tls);
 }
 
 enum class HeaderReadResult {
@@ -372,11 +407,21 @@ enum class HeaderReadResult {
     TimedOut,
 };
 
-HeaderReadResult read_request_headers(SocketHandle socket, std::string& request) {
+HeaderReadResult read_request_headers(SocketHandle socket,
+                                      std::string& request,
+                                      TlsConnectionHandle tls = nullptr) {
     char buffer[2048];
     while (request.size() < kMaxHeaderBytes) {
         const std::size_t capacity = std::min(sizeof(buffer), kMaxHeaderBytes - request.size());
-        const SocketResult bytes_received = recv(socket, buffer, static_cast<int>(capacity), 0);
+        SocketResult bytes_received = 0;
+#ifdef FAKAAPACHE_WITH_OPENSSL
+        if (tls != nullptr) {
+            bytes_received = SSL_read(tls, buffer, static_cast<int>(capacity));
+        } else
+#endif
+        {
+            bytes_received = recv(socket, buffer, static_cast<int>(capacity), 0);
+        }
         if (bytes_received > 0) {
             request.append(buffer, static_cast<std::size_t>(bytes_received));
             if (request.find("\r\n\r\n") != std::string::npos) {
@@ -456,7 +501,9 @@ enum class RequestBodyReadResult {
     TimedOut,
 };
 
-RequestBodyReadResult read_request_body(SocketHandle socket, std::string& request) {
+RequestBodyReadResult read_request_body(SocketHandle socket,
+                                        std::string& request,
+                                        TlsConnectionHandle tls = nullptr) {
     const std::optional<std::string> content_length = get_header_value(request, "content-length");
     if (!content_length.has_value()) {
         return RequestBodyReadResult::Malformed;
@@ -482,7 +529,15 @@ RequestBodyReadResult read_request_body(SocketHandle socket, std::string& reques
         char buffer[8192];
         const std::size_t remaining = body_start + body_length - request.size();
         const int capacity = static_cast<int>(std::min(remaining, sizeof(buffer)));
-        const SocketResult bytes_received = recv(socket, buffer, capacity, 0);
+        SocketResult bytes_received = 0;
+#ifdef FAKAAPACHE_WITH_OPENSSL
+        if (tls != nullptr) {
+            bytes_received = SSL_read(tls, buffer, capacity);
+        } else
+#endif
+        {
+            bytes_received = recv(socket, buffer, capacity, 0);
+        }
         if (bytes_received > 0) {
             request.append(buffer, static_cast<std::size_t>(bytes_received));
             continue;
@@ -694,6 +749,58 @@ struct ForwardTarget {
     std::uint16_t port = 0;
 };
 
+struct RateLimitConfig {
+    std::size_t requests_per_minute = 120;
+    std::size_t burst = 20;
+};
+
+struct RateBucket {
+    double tokens = -1.0;
+    std::chrono::steady_clock::time_point last_refill{};
+};
+
+std::mutex rate_limit_mutex;
+std::unordered_map<std::string, RateBucket> rate_buckets;
+
+bool allow_request(const std::string& client_address, const RateLimitConfig& config) {
+    const auto now = std::chrono::steady_clock::now();
+    std::lock_guard<std::mutex> lock(rate_limit_mutex);
+    RateBucket& bucket = rate_buckets[client_address];
+    if (bucket.tokens < 0.0) {
+        bucket.tokens = static_cast<double>(config.burst);
+        bucket.last_refill = now;
+    }
+
+    const std::chrono::duration<double> elapsed = now - bucket.last_refill;
+    const double refill = elapsed.count() * static_cast<double>(config.requests_per_minute) / 60.0;
+    bucket.tokens = std::min(static_cast<double>(config.burst), bucket.tokens + refill);
+    bucket.last_refill = now;
+    if (bucket.tokens < 1.0) {
+        return false;
+    }
+    bucket.tokens -= 1.0;
+    return true;
+}
+
+std::string peer_address(SocketHandle socket) {
+    sockaddr_storage address{};
+#ifdef _WIN32
+    int address_length = static_cast<int>(sizeof(address));
+#else
+    socklen_t address_length = sizeof(address);
+#endif
+    if (getpeername(socket, reinterpret_cast<sockaddr*>(&address), &address_length) != 0) {
+        return "unknown";
+    }
+
+    char host[NI_MAXHOST]{};
+    if (getnameinfo(reinterpret_cast<const sockaddr*>(&address), address_length,
+                    host, static_cast<socklen_t>(sizeof(host)), nullptr, 0, NI_NUMERICHOST) != 0) {
+        return "unknown";
+    }
+    return host;
+}
+
 bool connect_to_forward_target(const ForwardTarget& target, Socket& upstream) {
     const std::string port = std::to_string(target.port);
     addrinfo hints{};
@@ -728,10 +835,11 @@ bool connect_to_forward_target(const ForwardTarget& target, Socket& upstream) {
 
 bool forward_request(SocketHandle client_socket,
                       const std::string& request,
-                      const ForwardTarget& target) {
+                      const ForwardTarget& target,
+                      TlsConnectionHandle client_tls = nullptr) {
     Socket upstream;
     if (!connect_to_forward_target(target, upstream)) {
-        send_response(client_socket, "502 Bad Gateway");
+        send_response(client_socket, "502 Bad Gateway", "", "text/plain; charset=utf-8", "", true, client_tls);
         log_error("Unable to connect to forwarding target " + target.address + ":" +
                   std::to_string(target.port));
         return false;
@@ -741,7 +849,7 @@ bool forward_request(SocketHandle client_socket,
     std::string upstream_request = request;
     upstream_request.insert(headers_end, "Connection: close\r\n");
     if (!send_all(upstream.get(), upstream_request)) {
-        send_response(client_socket, "502 Bad Gateway");
+        send_response(client_socket, "502 Bad Gateway", "", "text/plain; charset=utf-8", "", true, client_tls);
         return false;
     }
 
@@ -749,7 +857,7 @@ bool forward_request(SocketHandle client_socket,
     while (true) {
         const SocketResult bytes_received = recv(upstream.get(), buffer, sizeof(buffer), 0);
         if (bytes_received > 0) {
-            if (!send_all(client_socket, std::string_view(buffer, static_cast<std::size_t>(bytes_received)))) {
+            if (!send_all(client_socket, std::string_view(buffer, static_cast<std::size_t>(bytes_received)), client_tls)) {
                 return false;
             }
             continue;
@@ -770,23 +878,46 @@ bool forward_request(SocketHandle client_socket,
 void handle_client(SocketHandle client_socket,
                    const fs::path& canonical_root,
                    const std::string& index_file,
-                   const ForwardTarget* forwarding_target) {
+                   const ForwardTarget* forwarding_target,
+                   TlsContextHandle tls_context,
+                   const RateLimitConfig& rate_limit_config) {
     Socket client(client_socket);
     ClientSlot slot;
     configure_client_timeout(client.get());
 
+#ifdef FAKAAPACHE_WITH_OPENSSL
+    std::unique_ptr<SSL, decltype(&SSL_free)> tls_holder(nullptr, SSL_free);
+    if (tls_context != nullptr) {
+        tls_holder.reset(SSL_new(tls_context));
+        if (!tls_holder || SSL_set_fd(tls_holder.get(), static_cast<int>(client.get())) != 1 ||
+            SSL_accept(tls_holder.get()) != 1) {
+            log_error("TLS handshake failed");
+            return;
+        }
+    }
+    const TlsConnectionHandle tls = tls_holder.get();
+#else
+    const TlsConnectionHandle tls = nullptr;
+#endif
+
+    if (!allow_request(peer_address(client.get()), rate_limit_config)) {
+        send_response(client.get(), "429 Too Many Requests", "Rate limit exceeded\n",
+                      "text/plain; charset=utf-8", "Retry-After: 1\r\n", true, tls);
+        return;
+    }
+
     std::string request;
-    switch (read_request_headers(client.get(), request)) {
+    switch (read_request_headers(client.get(), request, tls)) {
         case HeaderReadResult::Complete:
             break;
         case HeaderReadResult::TooLarge:
-            send_response(client.get(), "431 Request Header Fields Too Large");
+            send_response(client.get(), "431 Request Header Fields Too Large", "", "text/plain; charset=utf-8", "", true, tls);
             return;
         case HeaderReadResult::TimedOut:
-            send_response(client.get(), "408 Request Timeout");
+            send_response(client.get(), "408 Request Timeout", "", "text/plain; charset=utf-8", "", true, tls);
             return;
         case HeaderReadResult::Malformed:
-            send_response(client.get(), "400 Bad Request");
+            send_response(client.get(), "400 Bad Request", "", "text/plain; charset=utf-8", "", true, tls);
             return;
     }
 
@@ -794,46 +925,46 @@ void handle_client(SocketHandle client_socket,
     std::string target;
     std::string version;
     if (!parse_request_line(request, method, target, version)) {
-        send_response(client.get(), "400 Bad Request");
+        send_response(client.get(), "400 Bad Request", "", "text/plain; charset=utf-8", "", true, tls);
         return;
     }
 
     log_info("Request: " + printable_for_log(method) + " " + printable_for_log(target));
 
     if (method != "GET" && method != "HEAD" && method != "POST") {
-        send_response(client.get(), "405 Method Not Allowed", "", "text/plain; charset=utf-8", "Allow: GET, HEAD, POST\r\n");
+        send_response(client.get(), "405 Method Not Allowed", "", "text/plain; charset=utf-8", "Allow: GET, HEAD, POST\r\n", true, tls);
         return;
     }
 
     if (method == "POST" && forwarding_target == nullptr) {
-        send_response(client.get(), "405 Method Not Allowed", "", "text/plain; charset=utf-8", "Allow: GET, HEAD\r\n");
+        send_response(client.get(), "405 Method Not Allowed", "", "text/plain; charset=utf-8", "Allow: GET, HEAD\r\n", true, tls);
         return;
     }
 
     if (method == "POST") {
         const std::optional<std::string> transfer_encoding = get_header_value(request, "transfer-encoding");
         if (transfer_encoding.has_value() && *transfer_encoding != "identity") {
-            send_response(client.get(), "400 Bad Request");
+            send_response(client.get(), "400 Bad Request", "", "text/plain; charset=utf-8", "", true, tls);
             return;
         }
 
-        switch (read_request_body(client.get(), request)) {
+        switch (read_request_body(client.get(), request, tls)) {
             case RequestBodyReadResult::Complete:
                 break;
             case RequestBodyReadResult::TooLarge:
-                send_response(client.get(), "413 Content Too Large");
+                send_response(client.get(), "413 Content Too Large", "", "text/plain; charset=utf-8", "", true, tls);
                 return;
             case RequestBodyReadResult::TimedOut:
-                send_response(client.get(), "408 Request Timeout");
+                send_response(client.get(), "408 Request Timeout", "", "text/plain; charset=utf-8", "", true, tls);
                 return;
             case RequestBodyReadResult::Malformed:
-                send_response(client.get(), "400 Bad Request");
+                send_response(client.get(), "400 Bad Request", "", "text/plain; charset=utf-8", "", true, tls);
                 return;
         }
     }
 
     if (forwarding_target != nullptr) {
-        forward_request(client.get(), request, *forwarding_target);
+        forward_request(client.get(), request, *forwarding_target, tls);
         return;
     }
 
@@ -842,25 +973,25 @@ void handle_client(SocketHandle client_socket,
         case PathResolutionResult::Ok:
             break;
         case PathResolutionResult::BadRequest:
-            send_response(client.get(), "400 Bad Request");
+            send_response(client.get(), "400 Bad Request", "", "text/plain; charset=utf-8", "", true, tls);
             return;
         case PathResolutionResult::Forbidden:
-            send_response(client.get(), "403 Forbidden");
+            send_response(client.get(), "403 Forbidden", "", "text/plain; charset=utf-8", "", true, tls);
             log_error("Rejected unsafe path: " + printable_for_log(target));
             return;
         case PathResolutionResult::NotFound:
-            send_response(client.get(), "404 Not Found");
+            send_response(client.get(), "404 Not Found", "", "text/plain; charset=utf-8", "", true, tls);
             return;
     }
 
     std::string content;
     if (!read_file(file_path, content)) {
-        send_response(client.get(), "500 Internal Server Error");
+        send_response(client.get(), "500 Internal Server Error", "", "text/plain; charset=utf-8", "", true, tls);
         log_error("Failed to read file: " + file_path.string());
         return;
     }
 
-    send_response(client.get(), "200 OK", content, get_mime_type(file_path), "", method == "GET");
+    send_response(client.get(), "200 OK", content, get_mime_type(file_path), "", method == "GET", tls);
     log_info("Served: " + file_path.string());
 }
 
@@ -918,6 +1049,15 @@ int main(int argc, char* argv[]) {
     const std::string index_file = get_config_value("index_file", "index.html");
     const std::string forward_address = get_config_value("forward_address", "");
     const std::string forward_port_value = get_config_value("forward_port", "");
+    const std::string tls_certificate = get_config_value("tls_certificate", "");
+    const std::string tls_private_key = get_config_value("tls_private_key", "");
+    RateLimitConfig rate_limit_config;
+    if (!parse_positive_limit(get_config_value("rate_limit_requests_per_minute", "120"),
+                              rate_limit_config.requests_per_minute) ||
+        !parse_positive_limit(get_config_value("rate_limit_burst", "20"), rate_limit_config.burst)) {
+        log_error("Rate-limit settings must be positive integers.");
+        return 1;
+    }
 
     const bool forwarding_configured = !forward_address.empty() || !forward_port_value.empty();
     ForwardTarget forwarding_target;
@@ -934,6 +1074,32 @@ int main(int argc, char* argv[]) {
     if (!parse_port(get_config_value("port", "8080"), port)) {
         log_error("The configured port must be an integer from 1 through 65535.");
         return 1;
+    }
+
+    TlsContextHandle tls_context = nullptr;
+    if (!tls_certificate.empty() || !tls_private_key.empty()) {
+#ifdef FAKAAPACHE_WITH_OPENSSL
+        if (tls_certificate.empty() || tls_private_key.empty()) {
+            log_error("TLS requires both tls_certificate and tls_private_key.");
+            return 1;
+        }
+        OPENSSL_init_ssl(0, nullptr);
+        tls_context = SSL_CTX_new(TLS_server_method());
+        if (tls_context == nullptr ||
+            SSL_CTX_set_min_proto_version(tls_context, TLS1_2_VERSION) != 1 ||
+            SSL_CTX_use_certificate_file(tls_context, tls_certificate.c_str(), SSL_FILETYPE_PEM) != 1 ||
+            SSL_CTX_use_PrivateKey_file(tls_context, tls_private_key.c_str(), SSL_FILETYPE_PEM) != 1 ||
+            SSL_CTX_check_private_key(tls_context) != 1) {
+            log_error("Failed to load the configured TLS certificate or private key.");
+            if (tls_context != nullptr) {
+                SSL_CTX_free(tls_context);
+            }
+            return 1;
+        }
+#else
+        log_error("This build does not include OpenSSL TLS support.");
+        return 1;
+#endif
     }
 
     fs::path canonical_root;
@@ -983,7 +1149,12 @@ int main(int argc, char* argv[]) {
         log_info("Serving files from: " + canonical_root.string());
         log_info("Default index file: " + index_file);
     }
+    if (tls_context != nullptr) {
+        log_info("TLS is enabled");
+    }
     log_info("Concurrent-client limit: " + std::to_string(kMaxConcurrentClients));
+    log_info("Rate limit: " + std::to_string(rate_limit_config.requests_per_minute) +
+             " requests/minute, burst " + std::to_string(rate_limit_config.burst));
 
     while (true) {
         const SocketHandle client_socket = accept(server.get(), nullptr, nullptr);
@@ -997,12 +1168,15 @@ int main(int argc, char* argv[]) {
         }
 
         if (!acquire_client_slot()) {
-            send_response(client_socket, "503 Service Unavailable");
+            if (tls_context == nullptr) {
+                send_response(client_socket, "503 Service Unavailable");
+            }
             close_socket(client_socket);
             continue;
         }
 
         const ForwardTarget* target = forwarding_configured ? &forwarding_target : nullptr;
-        std::thread(handle_client, client_socket, std::cref(canonical_root), std::cref(index_file), target).detach();
+        std::thread(handle_client, client_socket, std::cref(canonical_root), std::cref(index_file), target,
+                    tls_context, std::cref(rate_limit_config)).detach();
     }
 }
