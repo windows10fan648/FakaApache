@@ -19,6 +19,7 @@ $(TARGET): webserver.cpp
 
 # Cross-compile a 64-bit Windows executable from a POSIX host.
 mingw: webserver.cpp
+	@echo "WARNING: MinGW support is deprecated; use CMake with an MSVC generator for Windows builds." >&2
 	$(MINGW_CXX) $(CXXFLAGS) webserver.cpp -o fakaapache.exe $(MINGW_LDFLAGS)
 
 test: fakaapache

@@ -8,7 +8,7 @@ Prebuilt Windows packages are published on the [GitHub Releases page](https://gi
 
 ## Build and run
 
-A C++17 compiler and POSIX-compatible operating system are required. Build the server with the following command.
+A C++17 compiler is required. On POSIX systems, build the server with the following command.
 
 ```bash
 g++ -std=c++17 -Wall -Wextra -Wpedantic -Wconversion -Wshadow -pthread webserver.cpp -o fakaapache
@@ -22,19 +22,36 @@ Run the server from the repository root so that the default configuration can fi
 
 The checked-in configuration binds only to `127.0.0.1:8080`. After starting the server, open <http://127.0.0.1:8080/> in a browser or run `curl -i http://127.0.0.1:8080/`.
 
-## Windows and MinGW-w64
+## Windows and MSVC
 
-FakaApache supports **64-bit MinGW-w64** on Windows. Install a MinGW-w64 toolchain using its POSIX threading model, then run the following command from the repository root in a MinGW shell.
+MSVC is the recommended and supported Windows toolchain. Install Visual Studio 2022 (or newer) with the Desktop development with C++ workload, then configure and build from a Developer PowerShell:
+
+```powershell
+cmake -S . -B build -G "Visual Studio 17 2022" -A x64
+cmake --build build --config Release
+```
+
+The executable is written to `build/Release/fakaapache.exe`. Run it from the repository root so it can find `siteconfig.fakaapache` and `www`:
+
+```powershell
+.\build\Release\fakaapache.exe --config siteconfig.fakaapache
+```
+
+The CMake configuration uses C++17, enables MSVC's `/W4` and `/permissive-` diagnostics, and links Winsock (`ws2_32`).
+
+## Deprecated: MinGW-w64
+
+MinGW-w64 support is retained for compatibility but is deprecated. New Windows builds should use MSVC and CMake. If you still need MinGW-w64, install a 64-bit toolchain using its POSIX threading model, then run the following command from the repository root in a MinGW shell.
 
 ```bash
 g++ -std=c++17 -Wall -Wextra -Wpedantic -Wconversion -Wshadow -pthread webserver.cpp -o fakaapache.exe -static -static-libgcc -static-libstdc++ -lws2_32
 ```
 
-Alternatively, use `mingw32-make` with the supplied `Makefile`; it detects Windows and produces `fakaapache.exe` with the required Winsock library. From another POSIX machine, use `make mingw` to cross-compile a Windows executable with `x86_64-w64-mingw32-g++-posix`.
+Alternatively, use `mingw32-make` with the supplied `Makefile`; it detects Windows and produces `fakaapache.exe` with the required Winsock library. From another POSIX machine, `make mingw` still cross-compiles a Windows executable with `x86_64-w64-mingw32-g++-posix`, but that path is deprecated.
 
 A MinGW-ready [Code::Blocks project](FakaApache.cbp) is included as well. Open it in Code::Blocks, select a MinGW-w64 compiler toolchain, then build either the **Debug** or **Release** target. This project configuration follows the same Code::Blocks structure used by the related Mini-Terminal project while adding the `ws2_32` Winsock dependency required by FakaApache.
 
-The Windows build initializes Winsock 2.2 before listening, uses `closesocket()` for socket cleanup, links against `ws2_32`, and retains all request-path, header-size, timeout, response-write, and concurrency protections of the POSIX build. The supplied build configuration statically links the MinGW runtime and pthread support, so the resulting executable needs only standard Windows system DLLs. The executable continues to read `siteconfig.fakaapache` from its working directory; run it from the repository root or provide an explicit `--config` path.
+The Windows build initializes Winsock 2.2 before listening, uses `closesocket()` for socket cleanup, links against `ws2_32`, and retains all request-path, header-size, timeout, response-write, and concurrency protections of the POSIX build. The deprecated MinGW build statically links the MinGW runtime and pthread support, while the MSVC build uses the normal Visual C++ runtime deployment model. The executable continues to read `siteconfig.fakaapache` from its working directory; run it from the repository root or provide an explicit `--config` path.
 
 ## Configuration
 
@@ -56,4 +73,4 @@ These safeguards make the example safer for local experimentation, but they do n
 
 ## Tests
 
-On a POSIX host, run `make test` after building to execute the integration checks. The suite verifies successful static-file delivery, unsupported-method handling, missing-file handling, percent-encoded traversal rejection, malformed URL rejection, oversized-header rejection, and invalid-port validation. The MinGW cross-build is verified separately with `make mingw`; executing the resulting Windows binary requires a Windows environment or compatible runtime.
+On a POSIX host, run `make test` after building to execute the integration checks. The suite verifies successful static-file delivery, unsupported-method handling, missing-file handling, percent-encoded traversal rejection, malformed URL rejection, oversized-header rejection, and invalid-port validation. Configure a Windows build with CMake and build the `fakaapache` target to verify MSVC support. The deprecated MinGW cross-build can still be checked separately with `make mingw`; executing the resulting Windows binary requires a Windows environment or compatible runtime.
