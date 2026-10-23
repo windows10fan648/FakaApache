@@ -1,0 +1,19 @@
+groups:
+  - name: fakaapache
+    rules:
+      - alert: FakaApacheHealthCheckFailed
+        expr: probe_success{job="fakaapache"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: FakaApache health check failed
+          description: The FakaApache endpoint has failed its health probe for two minutes.
+      - alert: FakaApacheHighLatency
+        expr: probe_http_duration_seconds{job="fakaapache"} > 1
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: FakaApache health check latency is high
+          description: The health endpoint has exceeded one second for five minutes.

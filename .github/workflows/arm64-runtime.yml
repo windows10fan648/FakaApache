@@ -1,0 +1,61 @@
+name: Native ARM64 runtime validation
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  linux-arm64:
+    name: Linux ARM64 runtime
+    runs-on: [self-hosted, linux, arm64]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build
+        run: |
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DVCPKG_TARGET_TRIPLET=arm64-linux
+          cmake --build build --parallel
+      - name: Validate and soak test
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./build/fakaapache --config siteconfig.fakaapache > arm64-runtime.log 2>&1 &
+          server_pid=$!
+          trap 'kill "$server_pid" 2>/dev/null || true; wait "$server_pid" 2>/dev/null || true' EXIT
+          for attempt in $(seq 1 50); do
+            if curl --silent --show-error --fail http://127.0.0.1:8080/healthz > /dev/null; then break; fi
+            sleep 0.1
+          done
+          python3 tests/deployment_validation.py --url http://127.0.0.1:8080
+          python3 tests/security_smoke.py --url http://127.0.0.1:8080
+          python3 tests/soak_test.py --url http://127.0.0.1:8080/healthz --duration 300 --workers 32
+
+  windows-arm64:
+    name: Windows ARM64 runtime
+    runs-on: [self-hosted, windows, arm64]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build
+        shell: pwsh
+        run: |
+          cmake -S . -B build -G "Visual Studio 17 2022" -A ARM64 -DVCPKG_TARGET_TRIPLET=arm64-windows-static
+          cmake --build build --config Release --parallel
+      - name: Validate and soak test
+        shell: pwsh
+        run: |
+          $server = Start-Process -FilePath 'build/Release/fakaapache.exe' -ArgumentList '--config', 'siteconfig.fakaapache' -PassThru
+          try {
+              $ready = $false
+              for ($attempt = 0; $attempt -lt 50; $attempt++) {
+                  curl.exe --silent --show-error --fail http://127.0.0.1:8080/healthz | Out-Null
+                  if ($LASTEXITCODE -eq 0) { $ready = $true; break }
+                  Start-Sleep -Milliseconds 100
+              }
+              if (-not $ready) { throw 'FakaApache did not become ready.' }
+              python tests/deployment_validation.py --url http://127.0.0.1:8080
+              python tests/security_smoke.py --url http://127.0.0.1:8080
+              python tests/soak_test.py --url http://127.0.0.1:8080/healthz --duration 300 --workers 32
+          } finally {
+              if (-not $server.HasExited) { Stop-Process -Id $server.Id -Force }
+          }

@@ -1,0 +1,27 @@
+[Unit]
+Description=FakaApache static hosting service
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=fakaapache
+Group=fakaapache
+WorkingDirectory=/opt/fakaapache/current
+ExecStart=/opt/fakaapache/current/fakaapache --config /etc/fakaapache/siteconfig.fakaapache
+Restart=on-failure
+RestartSec=5s
+KillSignal=SIGTERM
+TimeoutStopSec=20s
+SyslogIdentifier=fakaapache
+StandardOutput=journal
+StandardError=journal
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadOnlyPaths=/opt/fakaapache/current
+ReadWritePaths=/var/lib/fakaapache /var/log/fakaapache
+
+[Install]
+WantedBy=multi-user.target

@@ -125,6 +125,8 @@ The server URL-decodes and canonicalizes requested paths before serving them, re
 
 The `/healthz` endpoint returns `200 OK` and `ok` for deployment probes. The GitHub Actions release workflow starts native Linux x86_64 and Windows x86_64 builds after compilation, runs deployment validation, and performs a 200-request concurrent load smoke test. ARM64 builds are compiled and packaged but are not executed on the x86_64 runners. The security workflow runs CodeQL C++ analysis and dependency review on pull requests.
 
+Deployment procedures for monitoring, alerting, journald centralization, certificate rotation, backups, rollback, and external security review are documented in [`deploy/OPERATIONS.md`](deploy/OPERATIONS.md). These procedures require an operator’s infrastructure and cannot be fully automated by the server binary.
+
 These safeguards make the example safer for local experimentation, but they do not provide virtual hosting, structured logging, chunked request-body proxying, or a production-grade concurrency architecture. Do not expose it directly to the public internet. Do not configure forwarding to an untrusted or user-controlled upstream.
 
 ## Tests
