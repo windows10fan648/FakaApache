@@ -16,6 +16,8 @@ jobs:
     permissions:
       contents: read
     timeout-minutes: 90
+    env:
+      VCPKG_DOWNLOADS: ${{ github.workspace }}/.vcpkg-downloads
     name: ${{ matrix.asset }}
     runs-on: ${{ matrix.runner }}
     strategy:
@@ -59,7 +61,7 @@ jobs:
       - name: Cache vcpkg downloads
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
-          path: build/_vcpkg-2026.10.16/downloads
+          path: .vcpkg-downloads
           key: vcpkg-${{ runner.os }}-${{ matrix.triplet }}-2026.10.16-${{ hashFiles('vcpkg.json', '.github/vcpkg-triplets/**') }}
           restore-keys: |
             vcpkg-${{ runner.os }}-${{ matrix.triplet }}-2026.10.16-

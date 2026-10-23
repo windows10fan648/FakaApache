@@ -15,6 +15,8 @@ jobs:
     name: Linux x86_64 validation
     runs-on: ubuntu-24.04
     timeout-minutes: 60
+    env:
+      VCPKG_DOWNLOADS: ${{ github.workspace }}/.vcpkg-downloads
     steps:
       - name: Check out source
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -29,7 +31,7 @@ jobs:
       - name: Cache vcpkg downloads
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
-          path: build/_vcpkg-2026.10.16/downloads
+          path: .vcpkg-downloads
           key: vcpkg-${{ runner.os }}-x64-linux-static-2026.10.16-${{ hashFiles('vcpkg.json', '.github/vcpkg-triplets/**') }}
           restore-keys: |
             vcpkg-${{ runner.os }}-x64-linux-static-2026.10.16-
@@ -96,6 +98,8 @@ jobs:
     name: Windows x86_64 validation
     runs-on: windows-2022
     timeout-minutes: 60
+    env:
+      VCPKG_DOWNLOADS: ${{ github.workspace }}/.vcpkg-downloads
     steps:
       - name: Check out source
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -105,7 +109,7 @@ jobs:
       - name: Cache vcpkg downloads
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
-          path: build/_vcpkg-2026.10.16/downloads
+          path: .vcpkg-downloads
           key: vcpkg-${{ runner.os }}-x64-windows-static-2026.10.16-${{ hashFiles('vcpkg.json', '.github/vcpkg-triplets/**') }}
           restore-keys: |
             vcpkg-${{ runner.os }}-x64-windows-static-2026.10.16-

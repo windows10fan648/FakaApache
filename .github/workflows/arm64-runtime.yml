@@ -15,6 +15,8 @@ jobs:
     name: Linux ARM64 runtime
     timeout-minutes: 60
     runs-on: ubuntu-24.04-arm
+    env:
+      VCPKG_DOWNLOADS: ${{ github.workspace }}/.vcpkg-downloads
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
@@ -22,7 +24,7 @@ jobs:
       - name: Cache vcpkg downloads
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
-          path: build/_vcpkg-2026.10.16/downloads
+          path: .vcpkg-downloads
           key: vcpkg-${{ runner.os }}-arm64-linux-2026.10.16-${{ hashFiles('vcpkg.json', '.github/vcpkg-triplets/**') }}
           restore-keys: |
             vcpkg-${{ runner.os }}-arm64-linux-2026.10.16-
@@ -74,6 +76,8 @@ jobs:
     name: Windows ARM64 runtime
     timeout-minutes: 60
     runs-on: windows-11-vs2026-arm
+    env:
+      VCPKG_DOWNLOADS: ${{ github.workspace }}/.vcpkg-downloads
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
@@ -81,7 +85,7 @@ jobs:
       - name: Cache vcpkg downloads
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
-          path: build/_vcpkg-2026.10.16/downloads
+          path: .vcpkg-downloads
           key: vcpkg-${{ runner.os }}-arm64-windows-2026.10.16-${{ hashFiles('vcpkg.json', '.github/vcpkg-triplets/**') }}
           restore-keys: |
             vcpkg-${{ runner.os }}-arm64-windows-2026.10.16-
@@ -131,6 +135,8 @@ jobs:
     name: macOS Apple Silicon runtime
     timeout-minutes: 60
     runs-on: macos-15
+    env:
+      VCPKG_DOWNLOADS: ${{ github.workspace }}/.vcpkg-downloads
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
@@ -138,7 +144,7 @@ jobs:
       - name: Cache vcpkg downloads
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
-          path: build/_vcpkg-2026.10.16/downloads
+          path: .vcpkg-downloads
           key: vcpkg-${{ runner.os }}-arm64-osx-2026.10.16-${{ hashFiles('vcpkg.json', '.github/vcpkg-triplets/**') }}
           restore-keys: |
             vcpkg-${{ runner.os }}-arm64-osx-2026.10.16-
