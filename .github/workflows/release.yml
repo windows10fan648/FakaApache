@@ -2,6 +2,7 @@ name: Build and release every commit
 
 on:
   push:
+    branches: [main]
   pull_request:
     types: [closed]
   workflow_dispatch:
@@ -50,13 +51,13 @@ jobs:
 
     steps:
       - name: Check out commit
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           ref: ${{ github.event.pull_request.merge_commit_sha || github.sha }}
           persist-credentials: false
 
       - name: Cache vcpkg downloads
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: build/_vcpkg-2026.10.16/downloads
           key: vcpkg-${{ runner.os }}-${{ matrix.triplet }}-2026.10.16-${{ hashFiles('vcpkg.json', '.github/vcpkg-triplets/**') }}
@@ -312,14 +313,14 @@ jobs:
           "$hash  $package.zip" | Set-Content "release/$package.zip.sha256" -Encoding ASCII
 
       - name: Upload packaged artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: ${{ matrix.asset }}
           path: release/${{ matrix.asset }}.*
           if-no-files-found: error
 
   release:
-    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    if: (github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main')
     permissions:
       contents: write
       actions: read
@@ -328,13 +329,13 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - name: Download packaged artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           path: release-assets
           merge-multiple: true
 
       - name: Publish GitHub Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
         with:
           tag_name: fakaapache-${{ github.sha }}
           name: FakaApache build ${{ github.sha }}

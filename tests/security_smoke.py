@@ -4,6 +4,7 @@
 import argparse
 import http.client
 import sys
+from pathlib import Path
 from urllib.parse import urlsplit
 
 
@@ -30,6 +31,14 @@ def main():
 
     status, _, _ = request(args.url, "/%2e%2e/siteconfig.fakaapache")
     expect(status == 403, f"encoded traversal returned HTTP {status}")
+    status, _, body = request(args.url, "/siteconfig.fakaapache")
+    expect(status == 404, f"direct configuration request returned HTTP {status}")
+    config_path = Path("siteconfig.fakaapache")
+    if config_path.is_file():
+        config_contents = config_path.read_bytes()
+        expect(config_contents not in body, "direct configuration request exposed the configuration file")
+    for sensitive_value in (b"listen_port", b"rate_limit_requests_per_minute", b"rate_limit_burst"):
+        expect(sensitive_value not in body, "direct configuration request exposed sensitive configuration data")
     status, _, _ = request(args.url, "/%zz")
     expect(status == 400, f"malformed URL returned HTTP {status}")
     status, headers, _ = request(args.url, "/", "OPTIONS")
