@@ -15,6 +15,7 @@
 #include <netdb.h>
 #endif
 #include <mutex>
+#include <optional>
 #include <sstream>
 #include <string>
 #include <string_view>
@@ -48,6 +49,7 @@ constexpr std::size_t kMaxHeaderBytes = 16 * 1024;
 constexpr std::uintmax_t kMaxFileBytes = 10 * 1024 * 1024;
 constexpr std::size_t kMaxConcurrentClients = 64;
 constexpr int kClientTimeoutSeconds = 5;
+constexpr std::size_t kMaxRequestBodyBytes = 10 * 1024 * 1024;
 
 #ifdef _WIN32
 using SocketHandle = SOCKET;
@@ -415,6 +417,91 @@ bool parse_request_line(const std::string& request,
     return version == "HTTP/1.0" || version == "HTTP/1.1";
 }
 
+std::optional<std::string> get_header_value(const std::string& request, std::string_view header_name) {
+    const std::size_t first_line_end = request.find("\r\n");
+    if (first_line_end == std::string::npos) {
+        return std::nullopt;
+    }
+
+    std::size_t line_start = first_line_end + 2;
+    while (line_start < request.size()) {
+        const std::size_t line_end = request.find("\r\n", line_start);
+        if (line_end == std::string::npos || line_end == line_start) {
+            break;
+        }
+
+        const std::size_t separator = request.find(':', line_start);
+        if (separator != std::string::npos && separator < line_end) {
+            std::string name = request.substr(line_start, separator - line_start);
+            std::transform(name.begin(), name.end(), name.begin(), [](unsigned char character) {
+                return static_cast<char>(std::tolower(character));
+            });
+
+            if (name == header_name) {
+                return trim_copy(request.substr(separator + 1, line_end - separator - 1));
+            }
+        }
+        line_start = line_end + 2;
+    }
+    return std::nullopt;
+}
+
+enum class RequestBodyReadResult {
+    Complete,
+    Malformed,
+    TooLarge,
+    TimedOut,
+};
+
+RequestBodyReadResult read_request_body(SocketHandle socket, std::string& request) {
+    const std::optional<std::string> content_length = get_header_value(request, "content-length");
+    if (!content_length.has_value()) {
+        return RequestBodyReadResult::Malformed;
+    }
+
+    std::size_t body_length = 0;
+    const char* const begin = content_length->data();
+    const char* const end = begin + content_length->size();
+    const auto [parsed_end, error] = std::from_chars(begin, end, body_length);
+    if (error != std::errc{} || parsed_end != end) {
+        return RequestBodyReadResult::Malformed;
+    }
+    if (body_length > kMaxRequestBodyBytes) {
+        return RequestBodyReadResult::TooLarge;
+    }
+
+    const std::size_t headers_end = request.find("\r\n\r\n");
+    if (headers_end == std::string::npos) {
+        return RequestBodyReadResult::Malformed;
+    }
+    const std::size_t body_start = headers_end + 4;
+    while (request.size() < body_start + body_length) {
+        char buffer[8192];
+        const std::size_t remaining = body_start + body_length - request.size();
+        const int capacity = static_cast<int>(std::min(remaining, sizeof(buffer)));
+        const SocketResult bytes_received = recv(socket, buffer, capacity, 0);
+        if (bytes_received > 0) {
+            request.append(buffer, static_cast<std::size_t>(bytes_received));
+            continue;
+        }
+        if (bytes_received == 0) {
+            return RequestBodyReadResult::Malformed;
+        }
+
+        const int socket_error = last_socket_error();
+        if (is_interrupted_error(socket_error)) {
+            continue;
+        }
+        if (is_timeout_error(socket_error)) {
+            return RequestBodyReadResult::TimedOut;
+        }
+        return RequestBodyReadResult::Malformed;
+    }
+
+    request.resize(body_start + body_length);
+    return RequestBodyReadResult::Complete;
+}
+
 bool url_decode(std::string_view encoded, std::string& decoded) {
     decoded.clear();
     decoded.reserve(encoded.size());
@@ -710,9 +797,36 @@ void handle_client(SocketHandle client_socket,
 
     log_info("Request: " + printable_for_log(method) + " " + printable_for_log(target));
 
-    if (method != "GET") {
+    if (method != "GET" && method != "POST") {
+        send_response(client.get(), "405 Method Not Allowed", "", "text/plain; charset=utf-8", "Allow: GET, POST\r\n");
+        return;
+    }
+
+    if (method == "POST" && forwarding_target == nullptr) {
         send_response(client.get(), "405 Method Not Allowed", "", "text/plain; charset=utf-8", "Allow: GET\r\n");
         return;
+    }
+
+    if (method == "POST") {
+        const std::optional<std::string> transfer_encoding = get_header_value(request, "transfer-encoding");
+        if (transfer_encoding.has_value() && *transfer_encoding != "identity") {
+            send_response(client.get(), "400 Bad Request");
+            return;
+        }
+
+        switch (read_request_body(client.get(), request)) {
+            case RequestBodyReadResult::Complete:
+                break;
+            case RequestBodyReadResult::TooLarge:
+                send_response(client.get(), "413 Content Too Large");
+                return;
+            case RequestBodyReadResult::TimedOut:
+                send_response(client.get(), "408 Request Timeout");
+                return;
+            case RequestBodyReadResult::Malformed:
+                send_response(client.get(), "400 Bad Request");
+                return;
+        }
     }
 
     if (forwarding_target != nullptr) {

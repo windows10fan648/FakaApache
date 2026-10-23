@@ -74,13 +74,13 @@ forward_address = 127.0.0.1
 forward_port = 3000
 ```
 
-FakaApache opens a new upstream connection for each request, adds `Connection: close`, and relays the upstream HTTP response. Forwarding is intentionally limited to `GET` requests and is best used with a local or trusted upstream service. A failed upstream connection returns `502 Bad Gateway`.
+FakaApache opens a new upstream connection for each request, adds `Connection: close`, and relays the upstream HTTP response. Forwarding supports `GET` and `POST`; POST bodies require a valid `Content-Length` header and are limited to 10 MiB. It is best used with a local or trusted upstream service. A failed upstream connection returns `502 Bad Gateway`.
 
 ## Security and operational boundaries
 
 The server URL-decodes and canonicalizes requested paths before serving them, rejects requests that escape the configured document root, and guards against symlink escapes. It accepts only `GET` requests, limits request headers to 16 KiB, applies a five-second receive timeout, protects sends from `SIGPIPE`, and limits active client handlers to 64.
 
-These safeguards make the example safer for local experimentation, but they do not provide TLS, HTTP keep-alive, range requests, compression, access control, virtual hosting, rate limiting, structured logging, request-body proxying, or a production-grade concurrency architecture. Do not expose it directly to the public internet. Do not configure forwarding to an untrusted or user-controlled upstream.
+These safeguards make the example safer for local experimentation, but they do not provide TLS, HTTP keep-alive, range requests, compression, access control, virtual hosting, rate limiting, structured logging, chunked request-body proxying, or a production-grade concurrency architecture. Do not expose it directly to the public internet. Do not configure forwarding to an untrusted or user-controlled upstream.
 
 ## Tests
 

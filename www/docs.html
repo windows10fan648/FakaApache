@@ -79,11 +79,11 @@ cmake --build build --config Release</pre>
     <p>Set both values to forward GET requests to another HTTP application:</p>
     <pre>forward_address = 127.0.0.1
 forward_port = 3000</pre>
-    <p>FakaApache opens one upstream connection per request and returns <code>502 Bad Gateway</code> if the upstream cannot be reached. Forwarding is intended for local or trusted services.</p>
+    <p>FakaApache opens one upstream connection per request and returns <code>502 Bad Gateway</code> if the upstream cannot be reached. GET and POST are supported; POST bodies require <code>Content-Length</code> and are limited to 10 MiB. Forwarding is intended for local or trusted services.</p>
 
     <h2>Operational boundaries</h2>
     <ul>
-        <li>Only GET requests are accepted.</li>
+        <li>Static mode accepts GET; forwarding mode accepts GET and POST.</li>
         <li>Request headers are limited to 16 KiB and clients have a five-second receive timeout.</li>
         <li>Static paths are canonicalized and prevented from escaping the document root.</li>
         <li>TLS, authentication, rate limiting, compression, and production-grade proxy features are not included.</li>
