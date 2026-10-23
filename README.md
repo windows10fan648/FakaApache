@@ -123,4 +123,6 @@ These safeguards make the example safer for local experimentation, but they do n
 
 ## Tests
 
+From ordinary Command Prompt, start FakaApache separately and run `tests\integration_test.cmd http://127.0.0.1:8080` (the URL defaults to that value). This curl-based smoke test checks GET, HEAD, range requests, and gzip without requiring PowerShell.
+
 On a POSIX host, run `make test` after building to execute the integration checks. The suite verifies successful static-file delivery, HEAD responses, range delivery, unsupported-method handling, missing-file handling, percent-encoded traversal rejection, malformed URL rejection, oversized-header rejection, and invalid-port validation. On Windows PowerShell, run `.\tests\integration_test.ps1` after building; it additionally checks gzip negotiation, Basic Authentication, and rate limiting. Configure a Windows build with CMake and build the `fakaapache` target to verify MSVC support. The MinGW cross-build scheduled for removal can still be checked separately with `make mingw`; executing the resulting Windows binary requires a Windows environment or compatible runtime.
