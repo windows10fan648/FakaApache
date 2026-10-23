@@ -67,3 +67,36 @@ jobs:
           } finally {
               if (-not $server.HasExited) { Stop-Process -Id $server.Id -Force }
           }
+
+  macos-arm64:
+    name: macOS Apple Silicon runtime
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build
+        run: |
+          cmake -S . -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DVCPKG_TARGET_TRIPLET=arm64-osx \
+            -DFAKAAPACHE_APPLE_SILICON_OPTIMIZATIONS=ON
+          cmake --build build --parallel
+      - name: Validate and soak test
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp siteconfig.fakaapache ci-siteconfig.fakaapache
+          printf '\nrate_limit_requests_per_minute = 100000\nrate_limit_burst = 1000\n' >> ci-siteconfig.fakaapache
+          ./build/fakaapache --config ci-siteconfig.fakaapache > arm64-runtime.log 2>&1 &
+          server_pid=$!
+          trap 'kill "$server_pid" 2>/dev/null || true; wait "$server_pid" 2>/dev/null || true' EXIT
+          for attempt in $(seq 1 50); do
+            if curl --silent --show-error --fail http://127.0.0.1:8080/healthz > /dev/null; then break; fi
+            sleep 0.1
+            if ! kill -0 "$server_pid" 2>/dev/null; then
+              cat arm64-runtime.log
+              exit 1
+            fi
+          done
+          python3 tests/deployment_validation.py --url http://127.0.0.1:8080
+          python3 tests/security_smoke.py --url http://127.0.0.1:8080
+          python3 tests/soak_test.py --url http://127.0.0.1:8080/healthz --duration 300 --workers 32
