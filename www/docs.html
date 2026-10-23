@@ -85,8 +85,13 @@ root_directory = www</pre>
         <tr><td><code>auth_password</code></td><td>unset</td><td>Matching plaintext password; protect the configuration file.</td></tr>
     </table>
 
-    <h2>HTTP forwarding</h2>
-    <p>Set both values to forward GET requests to another HTTP application:</p>
+    <h2>Nginx reverse proxy deployment</h2>
+    <p>For production-style deployments, run Nginx separately in front of FakaApache. Let Nginx handle public TLS and application proxying, while FakaApache remains bound to loopback and serves static files. The repository includes <code>nginx.conf.example</code> with an <code>/api/</code> application route and a static fallback route.</p>
+    <pre>client &rarr; Nginx :80/:443 &rarr; /api/ &rarr; application
+                         &rarr; / &rarr; FakaApache :8080</pre>
+
+    <h2>Built-in HTTP forwarding</h2>
+    <p>FakaApache retains optional built-in forwarding for development and trusted local services. Set both values to forward GET requests to another HTTP application:</p>
     <pre>forward_address = 127.0.0.1
 forward_port = 3000</pre>
     <p>FakaApache opens one upstream connection per request and returns <code>502 Bad Gateway</code> if the upstream cannot be reached. GET and POST are supported; POST bodies require <code>Content-Length</code> and are limited to 10 MiB. Forwarding is intended for local or trusted services.</p>

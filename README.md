@@ -46,6 +46,17 @@ The Windows build initializes Winsock 2.2, uses `closesocket()` for socket clean
 
 The GitHub Actions release workflow runs when a pull request is merged into the repository, and can also be started manually. It builds the merged commit for Linux x86_64, Linux aarch64, Windows x86_64, and Windows ARM64 using CMake and vcpkg. Each build is packaged with the configuration, web root, documentation, and a SHA-256 checksum, then published as a GitHub Release.
 
+## Nginx reverse proxy deployment
+
+For production-style deployments, run Nginx as a separate front-end process. FakaApache should bind to loopback and serve static files, while Nginx handles public TLS, proxying, request buffering, and application routes. The repository includes [nginx.conf.example](nginx.conf.example) with this layout:
+
+```text
+client -> Nginx :80/:443 -> /api/ -> application
+                         -> / -> FakaApache static host :8080
+```
+
+Replace `example.com` and the application upstream address in the example. Do not expose FakaApache's static port publicly. Add Nginx TLS certificate directives and redirect HTTP to HTTPS when deploying publicly.
+
 ## Configuration
 
 The configuration uses INI-style sections and `key = value` entries. Lines beginning with `#` are comments. Global settings belong in `[server]`; host-specific settings use sections such as `[vhost example.com]`.
