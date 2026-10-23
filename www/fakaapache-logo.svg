@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 176" role="img" aria-labelledby="title desc">
+  <title id="title">FakaApache</title>
+  <desc id="desc">A blue server shield with a lightning bolt beside the FakaApache wordmark.</desc>
+  <defs>
+    <linearGradient id="shield" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#1597d3"/>
+      <stop offset="1" stop-color="#07558f"/>
+    </linearGradient>
+  </defs>
+  <g transform="translate(12 12)">
+    <path d="M76 0 142 24v48c0 41-27 70-66 80C37 142 10 113 10 72V24L76 0Z" fill="url(#shield)"/>
+    <path d="M76 15 127 33v39c0 31-19 54-51 64-32-10-51-33-51-64V33l51-18Z" fill="none" stroke="#b9e9ff" stroke-width="4" opacity=".8"/>
+    <path d="m83 27-31 49h23l-8 40 35-55H78l5-34Z" fill="#fff"/>
+    <circle cx="28" cy="25" r="5" fill="#fff" opacity=".9"/>
+    <circle cx="124" cy="25" r="5" fill="#fff" opacity=".9"/>
+    <path d="M33 25h35M84 25h35" stroke="#fff" stroke-width="3" opacity=".7"/>
+  </g>
+  <text x="178" y="104" fill="#12314a" font-family="Arial, Helvetica, sans-serif" font-size="66" font-weight="700" letter-spacing="-2">Faka<tspan fill="#0877b8">Apache</tspan></text>
+  <text x="183" y="137" fill="#547083" font-family="Arial, Helvetica, sans-serif" font-size="16" letter-spacing="4">SIMPLE HTTP SERVER</text>
+</svg>
