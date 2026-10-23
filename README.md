@@ -55,7 +55,16 @@ The Windows build initializes Winsock 2.2 before listening, uses `closesocket()`
 
 ## Configuration
 
-The configuration uses `key = value` entries. Lines beginning with `#` are comments. The server accepts the settings below.
+The configuration uses INI-style sections and `key = value` entries. Lines beginning with `#` are comments. Global settings belong in `[server]`; host-specific settings use sections such as `[vhost example.com]`.
+
+```ini
+[server]
+server_name = localhost
+port = 8080
+root_directory = www
+```
+
+Virtual-host sections are parsed and reserved for host-based routing; the current static root remains the `[server]` root until routing is enabled.
 
 | Setting | Default | Purpose |
 | --- | --- | --- |

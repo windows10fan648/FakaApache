@@ -299,14 +299,23 @@ std::string printable_for_log(std::string_view value) {
     return result;
 }
 
-std::unordered_map<std::string, std::string> parse_config(const std::string& filename) {
-    std::unordered_map<std::string, std::string> config;
+struct Config {
+    std::unordered_map<std::string, std::unordered_map<std::string, std::string>> sections;
+
+    bool empty() const {
+        return sections.empty();
+    }
+};
+
+Config parse_config(const std::string& filename) {
+    Config config;
     std::ifstream file(filename);
     if (!file) {
         log_error("Failed to open config file: " + filename);
         return config;
     }
 
+    std::string current_section = "server";
     std::string line;
     while (std::getline(file, line)) {
         const std::size_t comment_position = line.find('#');
@@ -316,6 +325,19 @@ std::unordered_map<std::string, std::string> parse_config(const std::string& fil
 
         line = trim_copy(std::move(line));
         if (line.empty()) {
+            continue;
+        }
+
+        if (line.front() == '[' && line.back() == ']') {
+            current_section = trim_copy(line.substr(1, line.size() - 2));
+            if (current_section.empty()) {
+                log_error("Ignoring configuration section with an empty name");
+                current_section = "server";
+            }
+            continue;
+        }
+        if (line.front() == '[' || line.back() == ']') {
+            log_error("Ignoring malformed configuration section");
             continue;
         }
 
@@ -332,7 +354,7 @@ std::unordered_map<std::string, std::string> parse_config(const std::string& fil
             continue;
         }
 
-        config[std::move(key)] = std::move(value);
+        config.sections[current_section][std::move(key)] = std::move(value);
     }
 
     return config;
@@ -1240,8 +1262,12 @@ int main(int argc, char* argv[]) {
     }
 
     const auto get_config_value = [&config](const std::string& key, const std::string& fallback) {
-        const auto iterator = config.find(key);
-        return iterator == config.end() ? fallback : iterator->second;
+        const auto section = config.sections.find("server");
+        if (section == config.sections.end()) {
+            return fallback;
+        }
+        const auto iterator = section->second.find(key);
+        return iterator == section->second.end() ? fallback : iterator->second;
     };
 
     const std::string server_name = get_config_value("server_name", "localhost");

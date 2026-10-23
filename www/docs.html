@@ -66,6 +66,10 @@ cmake --build build --config Release</pre>
     <p>The executable is created at <code>build/Release/fakaapache.exe</code>. CMake requires OpenSSL development libraries for TLS support.</p>
 
     <h2>Configuration</h2>
+    <p>Configuration uses INI-style sections. Global settings belong in <code>[server]</code>; virtual-host settings use sections such as <code>[vhost example.com]</code>.</p>
+    <pre>[server]
+port = 8080
+root_directory = www</pre>
     <table>
         <tr><th>Setting</th><th>Default</th><th>Purpose</th></tr>
         <tr><td><code>bind_address</code></td><td>127.0.0.1</td><td>IPv4 address on which the server listens.</td></tr>

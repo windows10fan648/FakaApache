@@ -1,4 +1,5 @@
-# FakaApache site configuration
+[server]
+# FakaApache site configuration.
 # Use 0.0.0.0 only when the server must accept connections from other hosts.
 server_name = localhost
 bind_address = 127.0.0.1
@@ -18,6 +19,11 @@ rate_limit_burst = 20
 # Store this file securely because the password is plaintext configuration.
 # auth_username = admin
 # auth_password = change-me
+
+# Host-specific sections use the same section-style format. They are reserved
+# for virtual-host routing and may override server settings in future releases.
+# [vhost example.com]
+# root_directory = sites/example.com
 
 # Optional HTTP reverse proxy. When both values are set, GET requests are
 # forwarded to this upstream instead of being served from root_directory.
