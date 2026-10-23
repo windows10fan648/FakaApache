@@ -42,17 +42,22 @@ jobs:
         with:
           ref: ${{ github.event.pull_request.merge_commit_sha || github.sha }}
 
+      - name: Install Linux build tools
+        if: startsWith(matrix.platform, 'linux')
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential ninja-build
+
       - name: Install Linux ARM64 cross compiler
         if: matrix.platform == 'linux-arm64'
         run: |
-          sudo apt-get update
-          sudo apt-get install -y gcc-aarch64-linux-gnu g++-aarch64-linux-gnu ninja-build
+          sudo apt-get install -y gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
 
       - name: Configure Linux x86_64
         if: matrix.platform == 'linux'
         env:
           VCPKG_DEFAULT_TRIPLET: ${{ matrix.triplet }}
-        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DVCPKG_TARGET_TRIPLET=${{ matrix.triplet }}
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_COMPILER=g++ -DVCPKG_TARGET_TRIPLET=${{ matrix.triplet }}
 
       - name: Configure Linux ARM64
         if: matrix.platform == 'linux-arm64'
@@ -60,7 +65,7 @@ jobs:
           VCPKG_DEFAULT_TRIPLET: ${{ matrix.triplet }}
           VCPKG_FORCE_SYSTEM_BINARIES: '1'
         run: >-
-          cmake -S . -B build
+          cmake -S . -B build -G Ninja
           -DCMAKE_BUILD_TYPE=Release
           -DCMAKE_SYSTEM_NAME=Linux
           -DCMAKE_SYSTEM_PROCESSOR=aarch64
