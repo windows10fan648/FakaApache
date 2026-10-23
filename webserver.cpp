@@ -31,6 +31,7 @@
 #endif
 #include <winsock2.h>
 #include <ws2tcpip.h>
+#include <windows.h>
 #else
 #include <arpa/inet.h>
 #include <netinet/in.h>
@@ -64,6 +65,24 @@ constexpr int kSendFlags = MSG_NOSIGNAL;
 
 std::mutex cout_mutex;
 std::atomic<std::size_t> active_clients{0};
+bool use_ansi_colors = false;
+
+void initialize_console_colors() {
+#ifdef _WIN32
+    const HANDLE output_handle = GetStdHandle(STD_OUTPUT_HANDLE);
+    DWORD console_mode = 0;
+    if (output_handle == INVALID_HANDLE_VALUE || !GetConsoleMode(output_handle, &console_mode)) {
+        return;
+    }
+
+    if ((console_mode & ENABLE_VIRTUAL_TERMINAL_PROCESSING) != 0 ||
+        SetConsoleMode(output_handle, console_mode | ENABLE_VIRTUAL_TERMINAL_PROCESSING)) {
+        use_ansi_colors = true;
+    }
+#else
+    use_ansi_colors = isatty(STDOUT_FILENO) != 0 && isatty(STDERR_FILENO) != 0;
+#endif
+}
 
 int last_socket_error() {
 #ifdef _WIN32
@@ -208,12 +227,20 @@ public:
 
 void log_info(const std::string& message) {
     std::lock_guard<std::mutex> lock(cout_mutex);
-    std::cout << "\033[32m[INFO]\033[0m " << message << std::endl;
+    if (use_ansi_colors) {
+        std::cout << "\033[32m[INFO]\033[0m " << message << std::endl;
+    } else {
+        std::cout << "[INFO] " << message << std::endl;
+    }
 }
 
 void log_error(const std::string& message) {
     std::lock_guard<std::mutex> lock(cout_mutex);
-    std::cerr << "\033[31m[ERROR]\033[0m " << message << std::endl;
+    if (use_ansi_colors) {
+        std::cerr << "\033[31m[ERROR]\033[0m " << message << std::endl;
+    } else {
+        std::cerr << "[ERROR] " << message << std::endl;
+    }
 }
 
 std::string trim_copy(std::string value) {
@@ -730,6 +757,7 @@ int main(int argc, char* argv[]) {
 #ifndef _WIN32
     std::signal(SIGPIPE, SIG_IGN);
 #endif
+    initialize_console_colors();
 
     NetworkRuntime network_runtime;
     if (!network_runtime.initialize()) {
