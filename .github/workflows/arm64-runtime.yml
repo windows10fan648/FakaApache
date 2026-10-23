@@ -20,7 +20,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          ./build/fakaapache --config siteconfig.fakaapache > arm64-runtime.log 2>&1 &
+          cp siteconfig.fakaapache ci-siteconfig.fakaapache
+          printf '\nrate_limit_requests_per_minute = 100000\nrate_limit_burst = 1000\n' >> ci-siteconfig.fakaapache
+          ./build/fakaapache --config ci-siteconfig.fakaapache > arm64-runtime.log 2>&1 &
           server_pid=$!
           trap 'kill "$server_pid" 2>/dev/null || true; wait "$server_pid" 2>/dev/null || true' EXIT
           for attempt in $(seq 1 50); do
@@ -48,7 +50,9 @@ jobs:
       - name: Validate and soak test
         shell: pwsh
         run: |
-          $server = Start-Process -FilePath 'build/fakaapache.exe' -ArgumentList '--config', 'siteconfig.fakaapache' -PassThru
+          Copy-Item 'siteconfig.fakaapache' 'ci-siteconfig.fakaapache'
+          Add-Content -Path 'ci-siteconfig.fakaapache' -Value "`nrate_limit_requests_per_minute = 100000`nrate_limit_burst = 1000"
+          $server = Start-Process -FilePath 'build/fakaapache.exe' -ArgumentList '--config', 'ci-siteconfig.fakaapache' -PassThru
           try {
               $ready = $false
               for ($attempt = 0; $attempt -lt 50; $attempt++) {
