@@ -46,6 +46,32 @@ The Windows build initializes Winsock 2.2, uses `closesocket()` for socket clean
 
 The release workflow builds and validates both Intel macOS (`x64-osx`) and Apple Silicon macOS (`arm64-osx`). Apple Silicon builds enable the `FAKAAPACHE_APPLE_SILICON_OPTIMIZATIONS` CMake option, which compiles and links with `-mcpu=apple-m1`.
 
+### Build and run on macOS
+
+Install Xcode Command Line Tools, Git, CMake, and Ninja. On Intel Macs, use the Intel vcpkg triplet:
+
+```bash
+cmake -S . -B build -G Ninja \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DVCPKG_TARGET_TRIPLET=x64-osx
+cmake --build build --parallel
+./build/fakaapache --config siteconfig.fakaapache
+```
+
+On Apple Silicon Macs, use the ARM64 triplet and enable the Apple Silicon optimization option. For a local build intended only for the current Mac, also pass `-mcpu=native` so Clang can tune the binary for that machine:
+
+```bash
+cmake -S . -B build -G Ninja \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DVCPKG_TARGET_TRIPLET=arm64-osx \
+  -DFAKAAPACHE_APPLE_SILICON_OPTIMIZATIONS=ON \
+  -DCMAKE_CXX_FLAGS="-mcpu=native"
+cmake --build build --parallel
+./build/fakaapache --config siteconfig.fakaapache
+```
+
+Use `-mcpu=native` for machine-specific development builds only; use the default Apple M1 baseline for binaries that will be distributed to other Apple Silicon Macs.
+
 ## Automated releases
 
 The GitHub Actions release workflow runs when a pull request is merged into the repository, and can also be started manually. It builds the merged commit for Linux x86_64, Linux aarch64, Windows x86_64, and Windows ARM64 using CMake and vcpkg. Each build is packaged with the configuration, web root, documentation, and a SHA-256 checksum, then published as a GitHub Release.
