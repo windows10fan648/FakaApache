@@ -5,3 +5,8 @@ bind_address = 127.0.0.1
 port = 8080
 root_directory = www
 index_file = index.html
+
+# Optional HTTP reverse proxy. When both values are set, GET requests are
+# forwarded to this upstream instead of being served from root_directory.
+# forward_address = 127.0.0.1
+# forward_port = 3000

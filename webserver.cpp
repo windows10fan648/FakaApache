@@ -11,6 +11,9 @@
 #include <iostream>
 #include <iterator>
 #include <limits>
+#ifndef _WIN32
+#include <netdb.h>
+#endif
 #include <mutex>
 #include <sstream>
 #include <string>
@@ -566,7 +569,88 @@ void configure_client_timeout(SocketHandle socket) {
     }
 }
 
-void handle_client(SocketHandle client_socket, const fs::path& canonical_root, const std::string& index_file) {
+struct ForwardTarget {
+    std::string address;
+    std::uint16_t port = 0;
+};
+
+bool connect_to_forward_target(const ForwardTarget& target, Socket& upstream) {
+    const std::string port = std::to_string(target.port);
+    addrinfo hints{};
+    hints.ai_family = AF_UNSPEC;
+    hints.ai_socktype = SOCK_STREAM;
+    hints.ai_protocol = IPPROTO_TCP;
+
+    addrinfo* addresses = nullptr;
+    const int lookup_result = getaddrinfo(target.address.c_str(), port.c_str(), &hints, &addresses);
+    if (lookup_result != 0) {
+        return false;
+    }
+
+    for (const addrinfo* address = addresses; address != nullptr; address = address->ai_next) {
+        const SocketHandle candidate = ::socket(address->ai_family, address->ai_socktype, address->ai_protocol);
+        if (candidate == kInvalidSocket) {
+            continue;
+        }
+
+        if (connect(candidate, address->ai_addr, static_cast<int>(address->ai_addrlen)) == 0) {
+            upstream.reset(candidate);
+            configure_client_timeout(upstream.get());
+            freeaddrinfo(addresses);
+            return true;
+        }
+        close_socket(candidate);
+    }
+
+    freeaddrinfo(addresses);
+    return false;
+}
+
+bool forward_request(SocketHandle client_socket,
+                      const std::string& request,
+                      const ForwardTarget& target) {
+    Socket upstream;
+    if (!connect_to_forward_target(target, upstream)) {
+        send_response(client_socket, "502 Bad Gateway");
+        log_error("Unable to connect to forwarding target " + target.address + ":" +
+                  std::to_string(target.port));
+        return false;
+    }
+
+    const std::size_t headers_end = request.find("\r\n\r\n");
+    std::string upstream_request = request;
+    upstream_request.insert(headers_end, "Connection: close\r\n");
+    if (!send_all(upstream.get(), upstream_request)) {
+        send_response(client_socket, "502 Bad Gateway");
+        return false;
+    }
+
+    char buffer[8192];
+    while (true) {
+        const SocketResult bytes_received = recv(upstream.get(), buffer, sizeof(buffer), 0);
+        if (bytes_received > 0) {
+            if (!send_all(client_socket, std::string_view(buffer, static_cast<std::size_t>(bytes_received)))) {
+                return false;
+            }
+            continue;
+        }
+        if (bytes_received == 0) {
+            return true;
+        }
+
+        const int error = last_socket_error();
+        if (is_interrupted_error(error)) {
+            continue;
+        }
+        log_error("Forwarding connection closed with socket error: " + socket_error_message(error));
+        return false;
+    }
+}
+
+void handle_client(SocketHandle client_socket,
+                   const fs::path& canonical_root,
+                   const std::string& index_file,
+                   const ForwardTarget* forwarding_target) {
     Socket client(client_socket);
     ClientSlot slot;
     configure_client_timeout(client.get());
@@ -598,6 +682,11 @@ void handle_client(SocketHandle client_socket, const fs::path& canonical_root, c
 
     if (method != "GET") {
         send_response(client.get(), "405 Method Not Allowed", "", "text/plain; charset=utf-8", "Allow: GET\r\n");
+        return;
+    }
+
+    if (forwarding_target != nullptr) {
+        forward_request(client.get(), request, *forwarding_target);
         return;
     }
 
@@ -679,6 +768,19 @@ int main(int argc, char* argv[]) {
     const std::string bind_address = get_config_value("bind_address", "127.0.0.1");
     const std::string root_directory = get_config_value("root_directory", "www");
     const std::string index_file = get_config_value("index_file", "index.html");
+    const std::string forward_address = get_config_value("forward_address", "");
+    const std::string forward_port_value = get_config_value("forward_port", "");
+
+    const bool forwarding_configured = !forward_address.empty() || !forward_port_value.empty();
+    ForwardTarget forwarding_target;
+    if (forwarding_configured) {
+        if (forward_address.empty() || forward_port_value.empty() ||
+            !parse_port(forward_port_value, forwarding_target.port)) {
+            log_error("Forwarding requires forward_address and a forward_port from 1 through 65535.");
+            return 1;
+        }
+        forwarding_target.address = forward_address;
+    }
 
     std::uint16_t port = 0;
     if (!parse_port(get_config_value("port", "8080"), port)) {
@@ -686,11 +788,14 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
-    std::error_code error;
-    const fs::path canonical_root = fs::canonical(root_directory, error);
-    if (error || !fs::is_directory(canonical_root, error) || error) {
-        log_error("The configured root directory is not an accessible directory: " + root_directory);
-        return 1;
+    fs::path canonical_root;
+    if (!forwarding_configured) {
+        std::error_code error;
+        canonical_root = fs::canonical(root_directory, error);
+        if (error || !fs::is_directory(canonical_root, error) || error) {
+            log_error("The configured root directory is not an accessible directory: " + root_directory);
+            return 1;
+        }
     }
 
     Socket server(::socket(AF_INET, SOCK_STREAM, IPPROTO_TCP));
@@ -723,8 +828,13 @@ int main(int argc, char* argv[]) {
     }
 
     log_info("FakaApache listening for " + server_name + " at " + bind_address + ":" + std::to_string(port));
-    log_info("Serving files from: " + canonical_root.string());
-    log_info("Default index file: " + index_file);
+    if (forwarding_configured) {
+        log_info("Forwarding HTTP requests to: " + forwarding_target.address + ":" +
+                 std::to_string(forwarding_target.port));
+    } else {
+        log_info("Serving files from: " + canonical_root.string());
+        log_info("Default index file: " + index_file);
+    }
     log_info("Concurrent-client limit: " + std::to_string(kMaxConcurrentClients));
 
     while (true) {
@@ -744,6 +854,7 @@ int main(int argc, char* argv[]) {
             continue;
         }
 
-        std::thread(handle_client, client_socket, std::cref(canonical_root), std::cref(index_file)).detach();
+        const ForwardTarget* target = forwarding_configured ? &forwarding_target : nullptr;
+        std::thread(handle_client, client_socket, std::cref(canonical_root), std::cref(index_file), target).detach();
     }
 }

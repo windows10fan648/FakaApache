@@ -57,7 +57,7 @@ kill -0 "${SERVER_PID}" 2>/dev/null || fail "the server did not start"
 
 status="$(curl -sS -D "${TEMP_DIR}/headers" -o "${TEMP_DIR}/body" -w '%{http_code}' "${BASE_URL}/")"
 assert_status 200 "${status}"
-assert_contains "FakaApache Debian Default Page" "${TEMP_DIR}/body"
+assert_contains "FakaApache Example Site" "${TEMP_DIR}/body"
 assert_contains "X-Content-Type-Options: nosniff" "${TEMP_DIR}/headers"
 
 status="$(curl -sS -X POST -D "${TEMP_DIR}/headers" -o "${TEMP_DIR}/body" -w '%{http_code}' "${BASE_URL}/")"

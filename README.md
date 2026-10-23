@@ -1,6 +1,6 @@
 # FakaApache
 
-**FakaApache** is a small, educational HTTP/1.x static-file server written in C++17. It is intended for learning how TCP sockets, HTTP request parsing, response headers, static-file delivery, and basic connection limits fit together. It is **not** a replacement for Apache, Nginx, Caddy, or another production web server.
+**FakaApache** is a small, educational HTTP/1.x static-file server with optional reverse-proxy forwarding, written in C++17. It is intended for learning how TCP sockets, HTTP request parsing, response headers, static-file delivery, forwarding, and basic connection limits fit together. It is **not** a replacement for Apache, Nginx, Caddy, or another production web server.
 
 ## Downloads and releases
 
@@ -64,12 +64,23 @@ The configuration uses `key = value` entries. Lines beginning with `#` are comme
 | `port` | `8080` | The TCP port. It must be an integer from `1` through `65535`. |
 | `root_directory` | `www` | The directory containing files that may be served. |
 | `index_file` | `index.html` | The file served for a request ending in `/`. |
+| `forward_address` | unset | Optional upstream hostname or IPv4 address for HTTP forwarding. Must be used with `forward_port`. |
+| `forward_port` | unset | Optional upstream TCP port. When forwarding is enabled, GET requests are proxied instead of served from `root_directory`. |
+
+To forward this server to an application listening on port `3000`, set both forwarding values:
+
+```ini
+forward_address = 127.0.0.1
+forward_port = 3000
+```
+
+FakaApache opens a new upstream connection for each request, adds `Connection: close`, and relays the upstream HTTP response. Forwarding is intentionally limited to `GET` requests and is best used with a local or trusted upstream service. A failed upstream connection returns `502 Bad Gateway`.
 
 ## Security and operational boundaries
 
 The server URL-decodes and canonicalizes requested paths before serving them, rejects requests that escape the configured document root, and guards against symlink escapes. It accepts only `GET` requests, limits request headers to 16 KiB, applies a five-second receive timeout, protects sends from `SIGPIPE`, and limits active client handlers to 64.
 
-These safeguards make the example safer for local experimentation, but they do not provide TLS, HTTP keep-alive, range requests, compression, access control, virtual hosting, rate limiting, structured logging, or a production-grade concurrency architecture. Do not expose it directly to the public internet.
+These safeguards make the example safer for local experimentation, but they do not provide TLS, HTTP keep-alive, range requests, compression, access control, virtual hosting, rate limiting, structured logging, request-body proxying, or a production-grade concurrency architecture. Do not expose it directly to the public internet. Do not configure forwarding to an untrusted or user-controlled upstream.
 
 ## Tests
 
