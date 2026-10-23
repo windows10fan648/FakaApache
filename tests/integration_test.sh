@@ -60,6 +60,10 @@ assert_status 200 "${status}"
 assert_contains "FakaApache Example Site" "${TEMP_DIR}/body"
 assert_contains "X-Content-Type-Options: nosniff" "${TEMP_DIR}/headers"
 
+status="$(curl -sS -X HEAD -D "${TEMP_DIR}/head-headers" -o "${TEMP_DIR}/head" -w '%{http_code}' "${BASE_URL}/")"
+assert_status 200 "${status}"
+[[ ! -s "${TEMP_DIR}/head" ]] || fail "HEAD returned a response body"
+
 status="$(curl -sS -X POST -D "${TEMP_DIR}/headers" -o "${TEMP_DIR}/body" -w '%{http_code}' "${BASE_URL}/")"
 assert_status 405 "${status}"
 assert_contains "Allow: GET" "${TEMP_DIR}/headers"

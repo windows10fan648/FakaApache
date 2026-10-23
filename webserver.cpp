@@ -349,7 +349,8 @@ void send_response(SocketHandle socket,
                    std::string_view status,
                    std::string_view body = "",
                    std::string_view content_type = "text/plain; charset=utf-8",
-                   std::string_view extra_headers = "") {
+                   std::string_view extra_headers = "",
+                   bool include_body = true) {
     std::ostringstream response;
     response << "HTTP/1.1 " << status << "\r\n"
              << "Content-Type: " << content_type << "\r\n"
@@ -357,8 +358,10 @@ void send_response(SocketHandle socket,
              << "Connection: close\r\n"
              << "X-Content-Type-Options: nosniff\r\n"
              << extra_headers
-             << "\r\n"
-             << body;
+             << "\r\n";
+    if (include_body) {
+        response << body;
+    }
     send_all(socket, response.str());
 }
 
@@ -797,13 +800,13 @@ void handle_client(SocketHandle client_socket,
 
     log_info("Request: " + printable_for_log(method) + " " + printable_for_log(target));
 
-    if (method != "GET" && method != "POST") {
-        send_response(client.get(), "405 Method Not Allowed", "", "text/plain; charset=utf-8", "Allow: GET, POST\r\n");
+    if (method != "GET" && method != "HEAD" && method != "POST") {
+        send_response(client.get(), "405 Method Not Allowed", "", "text/plain; charset=utf-8", "Allow: GET, HEAD, POST\r\n");
         return;
     }
 
     if (method == "POST" && forwarding_target == nullptr) {
-        send_response(client.get(), "405 Method Not Allowed", "", "text/plain; charset=utf-8", "Allow: GET\r\n");
+        send_response(client.get(), "405 Method Not Allowed", "", "text/plain; charset=utf-8", "Allow: GET, HEAD\r\n");
         return;
     }
 
@@ -857,7 +860,7 @@ void handle_client(SocketHandle client_socket,
         return;
     }
 
-    send_response(client.get(), "200 OK", content, get_mime_type(file_path));
+    send_response(client.get(), "200 OK", content, get_mime_type(file_path), "", method == "GET");
     log_info("Served: " + file_path.string());
 }
 
