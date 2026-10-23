@@ -74,7 +74,7 @@ Use `-mcpu=native` for machine-specific development builds only; use the default
 
 ## Automated releases
 
-The GitHub Actions release workflow runs when a pull request is merged into the repository, and can also be started manually. It builds the merged commit for Linux x86_64, Linux aarch64, Windows x86_64, and Windows ARM64 using CMake and vcpkg. Each build is packaged with the configuration, web root, documentation, and a SHA-256 checksum, then published as a GitHub Release.
+The GitHub Actions release workflow runs for every pushed commit and can also be started manually. It builds the commit for Linux x86_64, Linux aarch64, Windows x86_64, Windows ARM64, Intel macOS, and Apple Silicon macOS using CMake and vcpkg. Each build is packaged with the configuration, web root, documentation, and a SHA-256 checksum, then published as a GitHub Release tagged with the commit SHA.
 
 ## Nginx reverse proxy deployment
 

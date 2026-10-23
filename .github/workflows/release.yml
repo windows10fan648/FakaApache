@@ -1,4 +1,4 @@
-name: Build and release merged pull requests
+name: Build and release every commit
 
 on:
   push:
@@ -46,7 +46,7 @@ jobs:
             triplet: arm64-osx
 
     steps:
-      - name: Check out merged commit
+      - name: Check out commit
         uses: actions/checkout@v4
         with:
           ref: ${{ github.event.pull_request.merge_commit_sha || github.sha }}
@@ -281,7 +281,7 @@ jobs:
           if-no-files-found: error
 
   release:
-    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && github.event.pull_request.merged == true)
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
     needs: build
     runs-on: ubuntu-24.04
     steps:
@@ -294,7 +294,7 @@ jobs:
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: fakaapache-${{ github.event.pull_request.merge_commit_sha || github.sha }}
-          name: FakaApache build ${{ github.event.pull_request.merge_commit_sha || github.sha }}
+          tag_name: fakaapache-${{ github.sha }}
+          name: FakaApache build ${{ github.sha }}
           generate_release_notes: true
           files: release-assets/*
