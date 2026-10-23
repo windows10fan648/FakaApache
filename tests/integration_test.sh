@@ -71,6 +71,11 @@ assert_contains "Allow: GET" "${TEMP_DIR}/headers"
 status="$(curl -sS -D "${TEMP_DIR}/headers" -o "${TEMP_DIR}/body" -w '%{http_code}' "${BASE_URL}/missing.html")"
 assert_status 404 "${status}"
 
+status="$(curl -sS -H 'Range: bytes=0-9' -D "${TEMP_DIR}/headers" -o "${TEMP_DIR}/body" -w '%{http_code}' "${BASE_URL}/")"
+assert_status 206 "${status}"
+assert_contains "Content-Range: bytes 0-9/" "${TEMP_DIR}/headers"
+[[ "$(wc -c < "${TEMP_DIR}/body")" -eq 10 ]] || fail "range response did not contain 10 bytes"
+
 status="$(curl -sS --path-as-is -D "${TEMP_DIR}/headers" -o "${TEMP_DIR}/body" -w '%{http_code}' "${BASE_URL}/%2e%2e/siteconfig.fakaapache")"
 assert_status 403 "${status}"
 

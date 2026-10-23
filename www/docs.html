@@ -87,6 +87,9 @@ cmake --build build --config Release</pre>
 forward_port = 3000</pre>
     <p>FakaApache opens one upstream connection per request and returns <code>502 Bad Gateway</code> if the upstream cannot be reached. GET and POST are supported; POST bodies require <code>Content-Length</code> and are limited to 10 MiB. Forwarding is intended for local or trusted services.</p>
 
+    <h2>Keep-alive and ranges</h2>
+    <p>Static HTTP/1.1 clients may reuse a connection for up to 100 requests. Static GET and HEAD requests support one byte range, for example <code>Range: bytes=0-1023</code>. Multiple ranges are not supported. Forwarded connections are closed after each request.</p>
+
     <h2>TLS and rate limiting</h2>
     <p>Set both PEM paths to enable TLS:</p>
     <pre>tls_certificate = certs/server.crt
@@ -103,7 +106,7 @@ auth_password = change-me</pre>
     <h2>Operational boundaries</h2>
     <ul>
         <li>Static paths are canonicalized and prevented from escaping the document root.</li>
-        <li>HTTP keep-alive, range requests, and production-grade proxy features are not included.</li>
+        <li>Virtual hosting, structured logging, chunked request-body proxying, and production-grade proxy features are not included.</li>
     </ul>
     <p class="notice"><strong>MinGW-w64:</strong> compatibility support is scheduled for removal. Use MSVC and CMake for new Windows builds.</p>
 </main>

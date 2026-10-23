@@ -59,6 +59,7 @@ namespace {
 constexpr std::size_t kMaxHeaderBytes = 64 * 1024;
 constexpr std::uintmax_t kMaxFileBytes = 10 * 1024 * 1024;
 constexpr std::size_t kMaxConcurrentClients = 64;
+constexpr std::size_t kMaxKeepAliveRequests = 100;
 constexpr int kClientTimeoutSeconds = 5;
 constexpr std::size_t kMaxRequestBodyBytes = 10 * 1024 * 1024;
 
@@ -431,7 +432,8 @@ void send_response(SocketHandle socket,
                    std::string_view extra_headers = "",
                    bool include_body = true,
                    TlsConnectionHandle tls = nullptr,
-                   std::string_view accept_encoding = "") {
+                   std::string_view accept_encoding = "",
+                   bool keep_alive = false) {
     std::string compressed_body;
     const bool use_gzip = !body.empty() && accepts_gzip(accept_encoding) && gzip_compress(body, compressed_body);
     const std::string_view response_body = use_gzip ? std::string_view(compressed_body) : body;
@@ -439,7 +441,8 @@ void send_response(SocketHandle socket,
     response << "HTTP/1.1 " << status << "\r\n"
              << "Content-Type: " << content_type << "\r\n"
              << "Content-Length: " << response_body.size() << "\r\n"
-             << "Connection: close\r\n"
+             << "Connection: " << (keep_alive ? "keep-alive" : "close") << "\r\n"
+             << (keep_alive ? "Keep-Alive: timeout=5, max=100\r\n" : "")
              << "X-Content-Type-Options: nosniff\r\n"
              << (use_gzip ? "Content-Encoding: gzip\r\nVary: Accept-Encoding\r\n" : "")
              << extra_headers
@@ -978,6 +981,66 @@ bool forward_request(SocketHandle client_socket,
     }
 }
 
+struct ByteRange {
+    std::size_t start = 0;
+    std::size_t end = 0;
+};
+
+enum class RangeResult {
+    NotRequested,
+    Valid,
+    Unsatisfiable,
+};
+
+RangeResult parse_byte_range(const std::string& request,
+                             std::size_t content_size,
+                             ByteRange& range) {
+    const std::optional<std::string> header = get_header_value(request, "range");
+    if (!header.has_value()) {
+        return RangeResult::NotRequested;
+    }
+    if (content_size == 0 || header->compare(0, 6, "bytes=") != 0 || header->find(',', 6) != std::string::npos) {
+        return RangeResult::Unsatisfiable;
+    }
+
+    const std::string value = header->substr(6);
+    const std::size_t dash = value.find('-');
+    if (dash == std::string::npos) {
+        return RangeResult::Unsatisfiable;
+    }
+
+    if (dash == 0) {
+        std::size_t suffix_length = 0;
+        const auto [end, error] = std::from_chars(value.data() + 1, value.data() + value.size(), suffix_length);
+        if (error != std::errc{} || end != value.data() + value.size() || suffix_length == 0) {
+            return RangeResult::Unsatisfiable;
+        }
+        range.start = suffix_length >= content_size ? 0 : content_size - suffix_length;
+        range.end = content_size - 1;
+        return RangeResult::Valid;
+    }
+
+    std::size_t start = 0;
+    const auto [start_end, start_error] = std::from_chars(value.data(), value.data() + dash, start);
+    if (start_error != std::errc{} || start_end != value.data() + dash || start >= content_size) {
+        return RangeResult::Unsatisfiable;
+    }
+
+    range.start = start;
+    if (dash + 1 == value.size()) {
+        range.end = content_size - 1;
+        return RangeResult::Valid;
+    }
+
+    std::size_t end = 0;
+    const auto [end_end, end_error] = std::from_chars(value.data() + dash + 1, value.data() + value.size(), end);
+    if (end_error != std::errc{} || end_end != value.data() + value.size() || end < start) {
+        return RangeResult::Unsatisfiable;
+    }
+    range.end = std::min(end, content_size - 1);
+    return RangeResult::Valid;
+}
+
 void handle_client(SocketHandle client_socket,
                    const fs::path& canonical_root,
                    const std::string& index_file,
@@ -1004,11 +1067,13 @@ void handle_client(SocketHandle client_socket,
     const TlsConnectionHandle tls = nullptr;
 #endif
 
-    if (!allow_request(peer_address(client.get()), rate_limit_config)) {
-        send_response(client.get(), "429 Too Many Requests", "Rate limit exceeded\n",
-                      "text/plain; charset=utf-8", "Retry-After: 1\r\n", true, tls);
-        return;
-    }
+    const std::string client_ip = peer_address(client.get());
+    for (std::size_t request_count = 0; request_count < kMaxKeepAliveRequests; ++request_count) {
+        if (!allow_request(client_ip, rate_limit_config)) {
+            send_response(client.get(), "429 Too Many Requests", "Rate limit exceeded\n",
+                          "text/plain; charset=utf-8", "Retry-After: 1\r\n", true, tls);
+            return;
+        }
 
     std::string request;
     switch (read_request_headers(client.get(), request, tls)) {
@@ -1101,10 +1166,34 @@ void handle_client(SocketHandle client_socket,
         return;
     }
 
+    ByteRange range;
+    const RangeResult range_result = parse_byte_range(request, content.size(), range);
+    if (range_result == RangeResult::Unsatisfiable) {
+        send_response(client.get(), "416 Range Not Satisfiable", "", "text/plain; charset=utf-8",
+                      "Content-Range: bytes */" + std::to_string(content.size()) + "\r\n", true, tls, "", false);
+        return;
+    }
+
     const std::optional<std::string> accept_encoding = get_header_value(request, "accept-encoding");
-    send_response(client.get(), "200 OK", content, get_mime_type(file_path), "", method == "GET", tls,
-                  accept_encoding.value_or(""));
+    const std::optional<std::string> connection = get_header_value(request, "connection");
+    const bool keep_alive = version == "HTTP/1.1" &&
+                            (!connection.has_value() || *connection != "close") &&
+                            request_count + 1 < kMaxKeepAliveRequests;
+    if (range_result == RangeResult::Valid) {
+        const std::string partial_content = content.substr(range.start, range.end - range.start + 1);
+        send_response(client.get(), "206 Partial Content", partial_content, get_mime_type(file_path),
+                      "Accept-Ranges: bytes\r\nContent-Range: bytes " + std::to_string(range.start) + "-" +
+                          std::to_string(range.end) + "/" + std::to_string(content.size()) + "\r\n",
+                      method == "GET", tls, "", keep_alive);
+    } else {
+        send_response(client.get(), "200 OK", content, get_mime_type(file_path), "Accept-Ranges: bytes\r\n", method == "GET", tls,
+                      accept_encoding.value_or(""), keep_alive);
+    }
     log_info("Served: " + file_path.string());
+    if (!keep_alive) {
+        return;
+    }
+    }
 }
 
 void print_usage(const char* executable_name) {
