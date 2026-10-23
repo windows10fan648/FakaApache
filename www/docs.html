@@ -107,6 +107,19 @@ rate_limit_burst = 20</pre>
 auth_password = change-me</pre>
     <p>Set both credentials to enable HTTP Basic Authentication for all routes. Use TLS with authentication because the configured password is plaintext and Basic credentials are transport-encoded, not encrypted. Static responses are gzip-compressed when the client advertises <code>Accept-Encoding: gzip</code>.</p>
 
+    <h2>Tested features</h2>
+    <p>The Windows integration tests exercise the server with real HTTP requests. The Command Prompt suite can be run without PowerShell:</p>
+    <pre>tests\integration_test.cmd http://127.0.0.1:8080</pre>
+    <ul>
+        <li>GET and HEAD responses, including keep-alive headers.</li>
+        <li>Single-byte ranges, unsatisfiable ranges, and <code>Content-Range</code>.</li>
+        <li>Gzip negotiation, including <code>gzip;q=0</code>.</li>
+        <li>Missing files, malformed URLs, and directory-traversal rejection.</li>
+        <li>Unsupported methods, static POST rejection, and <code>Allow</code> headers.</li>
+        <li>Basic Authentication when <code>FAKAAPACHE_AUTH_USER</code> and <code>FAKAAPACHE_AUTH_PASSWORD</code> are set; the PowerShell suite also tests rate limiting.</li>
+        <li>TLS and proxy forwarding require dedicated configurations and are not enabled by the default smoke test.</li>
+    </ul>
+
     <h2>Operational boundaries</h2>
     <ul>
         <li>Static paths are canonicalized and prevented from escaping the document root.</li>
