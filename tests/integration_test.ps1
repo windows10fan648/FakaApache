@@ -7,6 +7,7 @@ $ErrorActionPreference = "Stop"
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 $tempRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("fakaapache-tests-" + [guid]::NewGuid())
 $serverProcess = $null
+$testSucceeded = $false
 
 function Assert-Equal([object]$Expected, [object]$Actual, [string]$Message) {
     if ($Expected -ne $Actual) {
@@ -47,18 +48,21 @@ function Start-TestServer([string]$ConfigPath, [int]$Port) {
         -WindowStyle Hidden `
         -PassThru
 
+    $lastStartupError = "No response received"
     for ($attempt = 0; $attempt -lt 50; $attempt++) {
         try {
             $response = Invoke-WebRequest -Uri "http://127.0.0.1:$Port/" -UseBasicParsing -TimeoutSec 1
             if ($response.StatusCode -ge 200) { return }
         } catch {
+            $lastStartupError = $_.Exception.Message
             Start-Sleep -Milliseconds 100
         }
-        if ($serverProcess.HasExited) {
-            throw "FakaApache exited while starting. See $stderr"
+        if ($script:serverProcess.HasExited) {
+            $errorText = if (Test-Path -LiteralPath $stderr) { Get-Content -LiteralPath $stderr -Raw } else { "<no stderr output>" }
+            throw "FakaApache exited while starting. Error: $errorText"
         }
     }
-    throw "FakaApache did not start on port $Port. See $stderr"
+    throw "FakaApache did not start on port $Port. Last request error: $lastStartupError. Logs: $stdout and $stderr"
 }
 
 function Stop-TestServer {
@@ -139,10 +143,13 @@ try {
         Stop-TestServer
     }
 
+    $testSucceeded = $true
     Write-Output "Windows integration tests passed."
 } finally {
     Stop-TestServer
-    if (Test-Path -LiteralPath $tempRoot) {
+    if ($testSucceeded -and (Test-Path -LiteralPath $tempRoot)) {
         Remove-Item -LiteralPath $tempRoot -Recurse -Force
+    } elseif (Test-Path -LiteralPath $tempRoot) {
+        Write-Warning "Test logs retained at $tempRoot"
     }
 }
