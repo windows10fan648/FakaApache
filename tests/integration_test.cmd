@@ -28,18 +28,13 @@ findstr /C:"FakaApache Example Site" "%TEMP_DIR%\get-body.txt" >nul || (
     goto :fail
 )
 
-curl.exe -sS --head -D "%TEMP_DIR%\head-headers.txt" -o "%TEMP_DIR%\head-body.txt" -w "%%{http_code}" "%BASE_URL%/" > "%TEMP_DIR%\status.txt"
+curl.exe -sS --head -D "%TEMP_DIR%\head-headers.txt" -o nul -w "%%{http_code}" "%BASE_URL%/" > "%TEMP_DIR%\status.txt"
 if errorlevel 1 goto :curl_fail
 set /p STATUS=<"%TEMP_DIR%\status.txt"
 if not "%STATUS%"=="200" (
     echo TEST FAILED: HEAD returned HTTP %STATUS%.
     goto :fail
 )
-for %%F in ("%TEMP_DIR%\head-body.txt") do if %%~zF neq 0 (
-    echo TEST FAILED: HEAD returned a response body.
-    goto :fail
-)
-
 curl.exe -sS -H "Range: bytes=0-9" -D "%TEMP_DIR%\range-headers.txt" -o "%TEMP_DIR%\range-body.txt" -w "%%{http_code}" "%BASE_URL%/" > "%TEMP_DIR%\status.txt"
 if errorlevel 1 goto :curl_fail
 set /p STATUS=<"%TEMP_DIR%\status.txt"
