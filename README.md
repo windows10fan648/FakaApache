@@ -121,7 +121,7 @@ Credentials are stored as plaintext configuration, so protect the file and use T
 
 ## Security and operational boundaries
 
-The server URL-decodes and canonicalizes requested paths before serving them, rejects requests that escape the configured document root, and guards against symlink escapes. It protects sends from `SIGPIPE` and limits active client handlers to 64.
+The server URL-decodes and canonicalizes requested paths before serving them, rejects requests that escape the configured document root, and guards against symlink escapes. It protects sends from `SIGPIPE`, limits active client handlers to 64, and handles `SIGINT`/`SIGTERM` with a bounded graceful shutdown when active requests finish.
 
 These safeguards make the example safer for local experimentation, but they do not provide virtual hosting, structured logging, chunked request-body proxying, or a production-grade concurrency architecture. Do not expose it directly to the public internet. Do not configure forwarding to an untrusted or user-controlled upstream.
 

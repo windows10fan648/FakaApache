@@ -125,6 +125,9 @@ auth_password = change-me</pre>
         <li>TLS and proxy forwarding require dedicated configurations and are not enabled by the default smoke test.</li>
     </ul>
 
+    <h2>Operational hardening</h2>
+    <p>The server validates startup configuration, limits active clients, applies receive timeouts, protects static paths, and performs a bounded graceful shutdown on <code>SIGINT</code> or <code>SIGTERM</code>. For public deployments, keep FakaApache on loopback behind Nginx and use Nginx for TLS termination, buffering, access logging, and rate controls.</p>
+
 </main>
 </body>
 </html>

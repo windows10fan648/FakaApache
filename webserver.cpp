@@ -14,6 +14,7 @@
 #include <cctype>
 #include <csignal>
 #include <cstring>
+#include <condition_variable>
 #include <filesystem>
 #include <fstream>
 #include <functional>
@@ -95,7 +96,14 @@ constexpr int kSendFlags = MSG_NOSIGNAL;
 
 std::mutex cout_mutex;
 std::atomic<std::size_t> active_clients{0};
+std::condition_variable client_condition;
+std::mutex client_condition_mutex;
+std::atomic<bool> shutdown_requested{false};
 bool use_ansi_colors = false;
+
+void request_shutdown(int) {
+    shutdown_requested.store(true, std::memory_order_relaxed);
+}
 
 void initialize_console_colors() {
 #ifdef _WIN32
@@ -249,6 +257,7 @@ public:
 
     ~ClientSlot() {
         active_clients.fetch_sub(1, std::memory_order_relaxed);
+        client_condition.notify_all();
     }
 
     ClientSlot(const ClientSlot&) = delete;
@@ -872,6 +881,22 @@ void configure_client_timeout(SocketHandle socket) {
     }
 }
 
+void configure_listener_timeout(SocketHandle socket) {
+#ifdef _WIN32
+    const DWORD timeout_milliseconds = 1000;
+    const int result = setsockopt(socket, SOL_SOCKET, SO_RCVTIMEO,
+                                  reinterpret_cast<const char*>(&timeout_milliseconds),
+                                  static_cast<int>(sizeof(timeout_milliseconds)));
+#else
+    timeval timeout{};
+    timeout.tv_sec = 1;
+    const int result = setsockopt(socket, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
+#endif
+    if (result == kSocketError) {
+        log_error("Failed to set listener receive timeout: " + socket_error_message(last_socket_error()));
+    }
+}
+
 struct ForwardTarget {
     std::string address;
     std::uint16_t port = 0;
@@ -1228,6 +1253,8 @@ int main(int argc, char* argv[]) {
 #ifndef _WIN32
     std::signal(SIGPIPE, SIG_IGN);
 #endif
+    std::signal(SIGINT, request_shutdown);
+    std::signal(SIGTERM, request_shutdown);
     initialize_console_colors();
 
     NetworkRuntime network_runtime;
@@ -1374,6 +1401,7 @@ int main(int argc, char* argv[]) {
         log_error("Listen failed: " + socket_error_message(last_socket_error()));
         return 1;
     }
+    configure_listener_timeout(server.get());
 
     log_info("FakaApache listening for " + server_name + " at " + bind_address + ":" + std::to_string(port));
     if (forwarding_configured) {
@@ -1393,12 +1421,15 @@ int main(int argc, char* argv[]) {
     log_info("Rate limit: " + std::to_string(rate_limit_config.requests_per_minute) +
              " requests/minute, burst " + std::to_string(rate_limit_config.burst));
 
-    while (true) {
+    while (!shutdown_requested.load(std::memory_order_relaxed)) {
         const SocketHandle client_socket = accept(server.get(), nullptr, nullptr);
         if (client_socket == kInvalidSocket) {
             const int accept_error = last_socket_error();
-            if (is_interrupted_error(accept_error)) {
+            if (is_interrupted_error(accept_error) || is_timeout_error(accept_error)) {
                 continue;
+            }
+            if (shutdown_requested.load(std::memory_order_relaxed)) {
+                break;
             }
             log_error("Accept failed: " + socket_error_message(accept_error));
             continue;
@@ -1416,4 +1447,15 @@ int main(int argc, char* argv[]) {
         std::thread(handle_client, client_socket, std::cref(canonical_root), std::cref(index_file), target,
                     tls_context, std::cref(rate_limit_config), std::cref(auth_config)).detach();
     }
+
+    log_info("Shutdown requested; waiting for active clients to finish");
+    std::unique_lock<std::mutex> lock(client_condition_mutex);
+    client_condition.wait_for(lock, std::chrono::seconds(10), [] {
+        return active_clients.load(std::memory_order_relaxed) == 0;
+    });
+    if (active_clients.load(std::memory_order_relaxed) != 0) {
+        log_error("Shutdown timeout reached with active clients still connected");
+        return 1;
+    }
+    log_info("Shutdown complete");
 }
