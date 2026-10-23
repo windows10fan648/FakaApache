@@ -2,6 +2,10 @@
 fakaapache
 fakaapache.exe
 
+# CMake generated output
+build/
+.cmake-check/
+
 # Code::Blocks generated output
 bin/
 obj/
