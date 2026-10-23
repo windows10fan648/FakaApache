@@ -77,7 +77,7 @@ assert_status 403 "${status}"
 status="$(curl -sS --path-as-is -D "${TEMP_DIR}/headers" -o "${TEMP_DIR}/body" -w '%{http_code}' "${BASE_URL}/%zz")"
 assert_status 400 "${status}"
 
-large_header="$(head -c 17000 < /dev/zero | tr '\0' 'a')"
+large_header="$(head -c 66000 < /dev/zero | tr '\0' 'a')"
 status="$(curl -sS -H "X-Large: ${large_header}" -D "${TEMP_DIR}/headers" -o "${TEMP_DIR}/body" -w '%{http_code}' "${BASE_URL}/")"
 assert_status 431 "${status}"
 

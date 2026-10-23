@@ -78,9 +78,9 @@ FakaApache opens a new upstream connection for each request, adds `Connection: c
 
 ## Security and operational boundaries
 
-The server URL-decodes and canonicalizes requested paths before serving them, rejects requests that escape the configured document root, and guards against symlink escapes. It accepts only `GET` requests, limits request headers to 16 KiB, applies a five-second receive timeout, protects sends from `SIGPIPE`, and limits active client handlers to 64.
+The server URL-decodes and canonicalizes requested paths before serving them, rejects requests that escape the configured document root, and guards against symlink escapes. It limits request headers to 64 KiB, applies a five-second receive timeout, protects sends from `SIGPIPE`, and limits active client handlers to 64.
 
-These safeguards make the example safer for local experimentation, but they do not provide TLS, HTTP keep-alive, range requests, compression, access control, virtual hosting, rate limiting, structured logging, chunked request-body proxying, or a production-grade concurrency architecture. Static mode supports `GET` and `HEAD`; forwarding mode also supports `POST`. Do not expose it directly to the public internet. Do not configure forwarding to an untrusted or user-controlled upstream.
+These safeguards make the example safer for local experimentation, but they do not provide TLS, HTTP keep-alive, range requests, compression, access control, virtual hosting, rate limiting, structured logging, chunked request-body proxying, or a production-grade concurrency architecture. Do not expose it directly to the public internet. Do not configure forwarding to an untrusted or user-controlled upstream.
 
 ## Tests
 

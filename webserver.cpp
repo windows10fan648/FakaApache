@@ -45,7 +45,7 @@ namespace fs = std::filesystem;
 
 namespace {
 
-constexpr std::size_t kMaxHeaderBytes = 16 * 1024;
+constexpr std::size_t kMaxHeaderBytes = 64 * 1024;
 constexpr std::uintmax_t kMaxFileBytes = 10 * 1024 * 1024;
 constexpr std::size_t kMaxConcurrentClients = 64;
 constexpr int kClientTimeoutSeconds = 5;
