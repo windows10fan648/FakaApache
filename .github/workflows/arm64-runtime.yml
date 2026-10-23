@@ -1,6 +1,9 @@
 name: Native ARM64 runtime validation
 
 on:
+  push:
+  pull_request:
+    types: [closed]
   workflow_dispatch:
 
 permissions:
@@ -8,6 +11,7 @@ permissions:
 
 jobs:
   linux-arm64:
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch' || github.event.pull_request.merged == true
     name: Linux ARM64 runtime
     runs-on: ubuntu-24.04-arm
     steps:
@@ -46,6 +50,7 @@ jobs:
           python3 tests/soak_test.py --url http://127.0.0.1:8080/healthz --duration 300 --workers 32
 
   windows-arm64:
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch' || github.event.pull_request.merged == true
     name: Windows ARM64 runtime
     runs-on: windows-11-vs2026-arm
     steps:
@@ -81,6 +86,7 @@ jobs:
           }
 
   macos-arm64:
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch' || github.event.pull_request.merged == true
     name: macOS Apple Silicon runtime
     runs-on: macos-15
     steps:
