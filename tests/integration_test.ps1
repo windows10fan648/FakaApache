@@ -96,10 +96,19 @@ try {
     Assert-Equal 200 $head.StatusCode "HEAD failed"
     Assert-Equal 0 $head.Content.Length "HEAD returned a response body"
 
-    $range = Invoke-WebRequest -Uri "http://127.0.0.1:$port/" -Headers @{ Range = "bytes=0-9" } -UseBasicParsing
-    Assert-Equal 206 $range.StatusCode "Range request failed"
-    Assert-True ($range.Headers["Content-Range"].StartsWith("bytes 0-9/")) "Missing Content-Range header"
-    Assert-Equal 10 $range.RawContentStream.Length "Range response had the wrong size"
+    $rangeRequest = [System.Net.HttpWebRequest]::Create("http://127.0.0.1:$port/")
+    $rangeRequest.AddRange(0, 9)
+    $rangeResponse = $rangeRequest.GetResponse()
+    try {
+        Assert-Equal 206 ([int]$rangeResponse.StatusCode) "Range request failed"
+        Assert-True ($rangeResponse.Headers["Content-Range"].StartsWith("bytes 0-9/")) "Missing Content-Range header"
+        $rangeBuffer = New-Object System.IO.MemoryStream
+        $rangeResponse.GetResponseStream().CopyTo($rangeBuffer)
+        Assert-Equal 10 $rangeBuffer.Length "Range response had the wrong size"
+        $rangeBuffer.Dispose()
+    } finally {
+        $rangeResponse.Close()
+    }
 
     $gzip = Invoke-WebRequest -Uri "http://127.0.0.1:$port/" -Headers @{ "Accept-Encoding" = "gzip" } -UseBasicParsing
     Assert-Equal "gzip" $gzip.Headers["Content-Encoding"] "Gzip negotiation failed"
