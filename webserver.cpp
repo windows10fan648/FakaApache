@@ -1,3 +1,12 @@
+#ifdef _WIN32
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#endif
+
 #include <algorithm>
 #include <atomic>
 #include <charconv>
@@ -29,14 +38,9 @@
 #include <openssl/err.h>
 #include <openssl/ssl.h>
 #endif
+#include <zlib.h>
 
 #ifdef _WIN32
-#ifndef NOMINMAX
-#define NOMINMAX
-#endif
-#ifndef WIN32_LEAN_AND_MEAN
-#define WIN32_LEAN_AND_MEAN
-#endif
 #include <winsock2.h>
 #include <ws2tcpip.h>
 #include <windows.h>
@@ -65,6 +69,14 @@ using TlsConnectionHandle = SSL*;
 using TlsContextHandle = void*;
 using TlsConnectionHandle = void*;
 #endif
+
+struct AuthConfig {
+    std::string username;
+    std::string password;
+    bool enabled() const {
+        return !username.empty() || !password.empty();
+    }
+};
 
 #ifdef _WIN32
 using SocketHandle = SOCKET;
@@ -379,23 +391,61 @@ bool send_all(SocketHandle socket, std::string_view data, TlsConnectionHandle tl
     return true;
 }
 
+bool accepts_gzip(std::string_view accept_encoding) {
+    std::string value(accept_encoding);
+    std::transform(value.begin(), value.end(), value.begin(), [](unsigned char character) {
+        return static_cast<char>(std::tolower(character));
+    });
+    const std::size_t gzip_position = value.find("gzip");
+    if (gzip_position == std::string::npos) {
+        return false;
+    }
+    const std::size_t quality_position = value.find("q=0", gzip_position);
+    return quality_position == std::string::npos;
+}
+
+bool gzip_compress(std::string_view input, std::string& output) {
+    z_stream stream{};
+    if (deflateInit2(&stream, Z_DEFAULT_COMPRESSION, Z_DEFLATED, 15 + 16, 8, Z_DEFAULT_STRATEGY) != Z_OK) {
+        return false;
+    }
+
+    output.resize(compressBound(static_cast<uLong>(input.size())));
+    stream.next_in = reinterpret_cast<Bytef*>(const_cast<char*>(input.data()));
+    stream.avail_in = static_cast<uInt>(input.size());
+    stream.next_out = reinterpret_cast<Bytef*>(output.data());
+    stream.avail_out = static_cast<uInt>(output.size());
+    const int result = deflate(&stream, Z_FINISH);
+    const bool success = result == Z_STREAM_END;
+    if (success) {
+        output.resize(stream.total_out);
+    }
+    deflateEnd(&stream);
+    return success;
+}
+
 void send_response(SocketHandle socket,
                    std::string_view status,
                    std::string_view body = "",
                    std::string_view content_type = "text/plain; charset=utf-8",
                    std::string_view extra_headers = "",
                    bool include_body = true,
-                   TlsConnectionHandle tls = nullptr) {
+                   TlsConnectionHandle tls = nullptr,
+                   std::string_view accept_encoding = "") {
+    std::string compressed_body;
+    const bool use_gzip = !body.empty() && accepts_gzip(accept_encoding) && gzip_compress(body, compressed_body);
+    const std::string_view response_body = use_gzip ? std::string_view(compressed_body) : body;
     std::ostringstream response;
     response << "HTTP/1.1 " << status << "\r\n"
              << "Content-Type: " << content_type << "\r\n"
-             << "Content-Length: " << body.size() << "\r\n"
+             << "Content-Length: " << response_body.size() << "\r\n"
              << "Connection: close\r\n"
              << "X-Content-Type-Options: nosniff\r\n"
+             << (use_gzip ? "Content-Encoding: gzip\r\nVary: Accept-Encoding\r\n" : "")
              << extra_headers
              << "\r\n";
     if (include_body) {
-        response << body;
+        response << response_body;
     }
     send_all(socket, response.str(), tls);
 }
@@ -492,6 +542,59 @@ std::optional<std::string> get_header_value(const std::string& request, std::str
         line_start = line_end + 2;
     }
     return std::nullopt;
+}
+
+bool decode_base64(std::string_view encoded, std::string& decoded) {
+    constexpr std::string_view alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    decoded.clear();
+    int buffer = 0;
+    int bits = 0;
+    for (const char character : encoded) {
+        if (character == '=') {
+            break;
+        }
+        const std::size_t value = alphabet.find(character);
+        if (value == std::string_view::npos) {
+            return false;
+        }
+        buffer = (buffer << 6) | static_cast<int>(value);
+        bits += 6;
+        if (bits >= 8) {
+            bits -= 8;
+            decoded.push_back(static_cast<char>((buffer >> bits) & 0xff));
+        }
+    }
+    return bits < 6;
+}
+
+bool constant_time_equal(std::string_view left, std::string_view right) {
+    if (left.size() != right.size()) {
+        return false;
+    }
+    unsigned char difference = 0;
+    for (std::size_t index = 0; index < left.size(); ++index) {
+        difference |= static_cast<unsigned char>(left[index] ^ right[index]);
+    }
+    return difference == 0;
+}
+
+bool is_authorized(const std::string& request, const AuthConfig& auth) {
+    if (!auth.enabled()) {
+        return true;
+    }
+    const std::optional<std::string> authorization = get_header_value(request, "authorization");
+    constexpr std::string_view prefix = "Basic ";
+    if (!authorization.has_value() || authorization->size() <= prefix.size() ||
+        authorization->compare(0, prefix.size(), prefix) != 0) {
+        return false;
+    }
+
+    std::string decoded;
+    if (!decode_base64(std::string_view(*authorization).substr(prefix.size()), decoded)) {
+        return false;
+    }
+    const std::string expected = auth.username + ":" + auth.password;
+    return constant_time_equal(decoded, expected);
 }
 
 enum class RequestBodyReadResult {
@@ -880,7 +983,8 @@ void handle_client(SocketHandle client_socket,
                    const std::string& index_file,
                    const ForwardTarget* forwarding_target,
                    TlsContextHandle tls_context,
-                   const RateLimitConfig& rate_limit_config) {
+                   const RateLimitConfig& rate_limit_config,
+                   const AuthConfig& auth_config) {
     Socket client(client_socket);
     ClientSlot slot;
     configure_client_timeout(client.get());
@@ -919,6 +1023,12 @@ void handle_client(SocketHandle client_socket,
         case HeaderReadResult::Malformed:
             send_response(client.get(), "400 Bad Request", "", "text/plain; charset=utf-8", "", true, tls);
             return;
+    }
+
+    if (!is_authorized(request, auth_config)) {
+        send_response(client.get(), "401 Unauthorized", "Authentication required\n",
+                      "text/plain; charset=utf-8", "WWW-Authenticate: Basic realm=\"FakaApache\"\r\n", true, tls);
+        return;
     }
 
     std::string method;
@@ -991,7 +1101,9 @@ void handle_client(SocketHandle client_socket,
         return;
     }
 
-    send_response(client.get(), "200 OK", content, get_mime_type(file_path), "", method == "GET", tls);
+    const std::optional<std::string> accept_encoding = get_header_value(request, "accept-encoding");
+    send_response(client.get(), "200 OK", content, get_mime_type(file_path), "", method == "GET", tls,
+                  accept_encoding.value_or(""));
     log_info("Served: " + file_path.string());
 }
 
@@ -1051,6 +1163,13 @@ int main(int argc, char* argv[]) {
     const std::string forward_port_value = get_config_value("forward_port", "");
     const std::string tls_certificate = get_config_value("tls_certificate", "");
     const std::string tls_private_key = get_config_value("tls_private_key", "");
+    AuthConfig auth_config;
+    auth_config.username = get_config_value("auth_username", "");
+    auth_config.password = get_config_value("auth_password", "");
+    if (auth_config.username.empty() != auth_config.password.empty()) {
+        log_error("Authentication requires both auth_username and auth_password.");
+        return 1;
+    }
     RateLimitConfig rate_limit_config;
     if (!parse_positive_limit(get_config_value("rate_limit_requests_per_minute", "120"),
                               rate_limit_config.requests_per_minute) ||
@@ -1152,6 +1271,9 @@ int main(int argc, char* argv[]) {
     if (tls_context != nullptr) {
         log_info("TLS is enabled");
     }
+    if (auth_config.enabled()) {
+        log_info("HTTP Basic Authentication is enabled");
+    }
     log_info("Concurrent-client limit: " + std::to_string(kMaxConcurrentClients));
     log_info("Rate limit: " + std::to_string(rate_limit_config.requests_per_minute) +
              " requests/minute, burst " + std::to_string(rate_limit_config.burst));
@@ -1177,6 +1299,6 @@ int main(int argc, char* argv[]) {
 
         const ForwardTarget* target = forwarding_configured ? &forwarding_target : nullptr;
         std::thread(handle_client, client_socket, std::cref(canonical_root), std::cref(index_file), target,
-                    tls_context, std::cref(rate_limit_config)).detach();
+                    tls_context, std::cref(rate_limit_config), std::cref(auth_config)).detach();
     }
 }

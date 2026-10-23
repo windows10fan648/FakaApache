@@ -62,6 +62,7 @@ endif()
 project(FakaApache LANGUAGES CXX)
 
 find_package(OpenSSL REQUIRED COMPONENTS SSL Crypto)
+find_package(ZLIB REQUIRED)
 
 add_executable(fakaapache webserver.cpp)
 target_compile_features(fakaapache PRIVATE cxx_std_17)
@@ -76,7 +77,7 @@ else()
 endif()
 
 if(WIN32)
-    target_link_libraries(fakaapache PRIVATE ws2_32 OpenSSL::SSL OpenSSL::Crypto)
+    target_link_libraries(fakaapache PRIVATE ws2_32 OpenSSL::SSL OpenSSL::Crypto ZLIB::ZLIB)
 else()
-    target_link_libraries(fakaapache PRIVATE OpenSSL::SSL OpenSSL::Crypto)
+    target_link_libraries(fakaapache PRIVATE OpenSSL::SSL OpenSSL::Crypto ZLIB::ZLIB)
 endif()

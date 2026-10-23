@@ -3,7 +3,7 @@ MINGW_CXX ?= x86_64-w64-mingw32-g++-posix
 MINGW_LDFLAGS ?= -static -static-libgcc -static-libstdc++ -lws2_32
 
 CXXFLAGS ?= -std=c++17 -Wall -Wextra -Wpedantic -Wconversion -Wshadow -pthread -DFAKAAPACHE_WITH_OPENSSL
-OPENSSL_LDFLAGS ?= -lssl -lcrypto
+OPENSSL_LDFLAGS ?= -lssl -lcrypto -lz
 TARGET ?= fakaapache
 
 ifeq ($(OS),Windows_NT)

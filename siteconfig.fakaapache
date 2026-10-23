@@ -14,6 +14,11 @@ index_file = index.html
 rate_limit_requests_per_minute = 120
 rate_limit_burst = 20
 
+# Optional HTTP Basic Authentication. Set both values to protect all routes.
+# Store this file securely because the password is plaintext configuration.
+# auth_username = admin
+# auth_password = change-me
+
 # Optional HTTP reverse proxy. When both values are set, GET requests are
 # forwarded to this upstream instead of being served from root_directory.
 # forward_address = 127.0.0.1

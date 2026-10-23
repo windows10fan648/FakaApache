@@ -2,6 +2,7 @@
   "name": "fakaapache",
   "version-string": "1.0.0",
   "dependencies": [
-    "openssl"
+    "openssl",
+    "zlib"
   ]
 }

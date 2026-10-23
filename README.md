@@ -11,7 +11,7 @@ Prebuilt Windows packages are published on the [GitHub Releases page](https://gi
 A C++17 compiler is required. On POSIX systems, build the server with the following command.
 
 ```bash
-g++ -std=c++17 -Wall -Wextra -Wpedantic -Wconversion -Wshadow -pthread -DFAKAAPACHE_WITH_OPENSSL webserver.cpp -o fakaapache -lssl -lcrypto
+g++ -std=c++17 -Wall -Wextra -Wpedantic -Wconversion -Wshadow -pthread -DFAKAAPACHE_WITH_OPENSSL webserver.cpp -o fakaapache -lssl -lcrypto -lz
 ```
 
 Run the server from the repository root so that the default configuration can find the `www` directory.
@@ -44,7 +44,7 @@ The CMake configuration uses C++17, enables MSVC's `/W4` and `/permissive-` diag
 MinGW-w64 support is retained temporarily for compatibility and is scheduled for removal in a future release. New Windows builds must use MSVC and CMake. If you still need MinGW-w64 during the transition, install a 64-bit toolchain using its POSIX threading model, then run the following command from the repository root in a MinGW shell.
 
 ```bash
-g++ -std=c++17 -Wall -Wextra -Wpedantic -Wconversion -Wshadow -pthread -DFAKAAPACHE_WITH_OPENSSL webserver.cpp -o fakaapache.exe -static -static-libgcc -static-libstdc++ -lws2_32 -lssl -lcrypto
+g++ -std=c++17 -Wall -Wextra -Wpedantic -Wconversion -Wshadow -pthread -DFAKAAPACHE_WITH_OPENSSL webserver.cpp -o fakaapache.exe -static -static-libgcc -static-libstdc++ -lws2_32 -lssl -lcrypto -lz
 ```
 
 Alternatively, use `mingw32-make` with the supplied `Makefile`; it detects Windows and produces `fakaapache.exe` with the required Winsock library. From another POSIX machine, `make mingw` still cross-compiles a Windows executable with `x86_64-w64-mingw32-g++-posix`, but that path is also scheduled for removal.
@@ -70,6 +70,8 @@ The configuration uses `key = value` entries. Lines beginning with `#` are comme
 | `tls_private_key` | unset | PEM private-key path corresponding to `tls_certificate`. |
 | `rate_limit_requests_per_minute` | `120` | Token-bucket refill rate per client IP. |
 | `rate_limit_burst` | `20` | Maximum immediate requests per client IP. |
+| `auth_username` | unset | Optional HTTP Basic Authentication username. Must be used with `auth_password`. |
+| `auth_password` | unset | Optional plaintext Basic Authentication password. Protect the configuration file. |
 
 To forward this server to an application listening on port `3000`, set both forwarding values:
 
@@ -91,11 +93,22 @@ tls_private_key = certs/server.key
 
 The certificate and private key must be PEM files, and the private key must match the certificate. Rate limiting uses a token bucket per client IP. The default allows 120 requests per minute with a burst of 20; customize `rate_limit_requests_per_minute` and `rate_limit_burst` as needed.
 
+### Authentication and compression
+
+Set both credentials to require HTTP Basic Authentication for all routes:
+
+```ini
+auth_username = admin
+auth_password = change-me
+```
+
+Credentials are stored as plaintext configuration, so protect the file and use TLS whenever authentication is enabled. Static responses are gzip-compressed when the client sends `Accept-Encoding: gzip`; forwarded upstream responses are relayed without recompression.
+
 ## Security and operational boundaries
 
-The server URL-decodes and canonicalizes requested paths before serving them, rejects requests that escape the configured document root, and guards against symlink escapes. It limits request headers to 64 KiB, applies a five-second receive timeout, protects sends from `SIGPIPE`, and limits active client handlers to 64.
+The server URL-decodes and canonicalizes requested paths before serving them, rejects requests that escape the configured document root, and guards against symlink escapes. It protects sends from `SIGPIPE` and limits active client handlers to 64.
 
-These safeguards make the example safer for local experimentation, but they do not provide HTTP keep-alive, range requests, compression, access control, virtual hosting, structured logging, chunked request-body proxying, or a production-grade concurrency architecture. Do not expose it directly to the public internet. Do not configure forwarding to an untrusted or user-controlled upstream.
+These safeguards make the example safer for local experimentation, but they do not provide HTTP keep-alive, range requests, virtual hosting, structured logging, chunked request-body proxying, or a production-grade concurrency architecture. Do not expose it directly to the public internet. Do not configure forwarding to an untrusted or user-controlled upstream.
 
 ## Tests
 
