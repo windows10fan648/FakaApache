@@ -8,16 +8,17 @@ Prebuilt Windows packages are published on the [GitHub Releases page](https://gi
 
 ## Build and run
 
-A C++17 compiler is required. On POSIX systems, build the server with the following command.
+A C++17 compiler is required. CMake is the supported build system on Linux and Windows. On Linux, configure and build with the automatically bootstrapped vcpkg toolchain:
 
 ```bash
-g++ -std=c++17 -Wall -Wextra -Wpedantic -Wconversion -Wshadow -pthread -DFAKAAPACHE_WITH_OPENSSL webserver.cpp -o fakaapache -lssl -lcrypto -lz
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build --config Release
 ```
 
 Run the server from the repository root so that the default configuration can find the `www` directory.
 
 ```bash
-./fakaapache --config siteconfig.fakaapache
+./build/fakaapache --config siteconfig.fakaapache
 ```
 
 The checked-in configuration binds only to `127.0.0.1:8080`. After starting the server, open <http://127.0.0.1:8080/> in a browser or run `curl -i http://127.0.0.1:8080/`.
@@ -39,19 +40,7 @@ The executable is written to `build/Release/fakaapache.exe`. Run it from the rep
 
 The CMake configuration uses C++17, enables MSVC's `/W4` and `/permissive-` diagnostics, links Winsock (`ws2_32`), and installs OpenSSL for TLS support. The first configure requires network access and Git. To use an existing vcpkg installation instead, pass `-DFAKAAPACHE_BOOTSTRAP_VCPKG=OFF -DCMAKE_TOOLCHAIN_FILE=C:/path/to/vcpkg/scripts/buildsystems/vcpkg.cmake`.
 
-## Scheduled for removal: MinGW-w64
-
-MinGW-w64 support is retained temporarily for compatibility and is scheduled for removal in a future release. New Windows builds must use MSVC and CMake. If you still need MinGW-w64 during the transition, install a 64-bit toolchain using its POSIX threading model, then run the following command from the repository root in a MinGW shell.
-
-```bash
-g++ -std=c++17 -Wall -Wextra -Wpedantic -Wconversion -Wshadow -pthread -DFAKAAPACHE_WITH_OPENSSL webserver.cpp -o fakaapache.exe -static -static-libgcc -static-libstdc++ -lws2_32 -lssl -lcrypto -lz
-```
-
-Alternatively, use `mingw32-make` with the supplied `Makefile`; it detects Windows and produces `fakaapache.exe` with the required Winsock library. From another POSIX machine, `make mingw` still cross-compiles a Windows executable with `x86_64-w64-mingw32-g++-posix`, but that path is also scheduled for removal.
-
-A MinGW-ready [Code::Blocks project](FakaApache.cbp) is included as well. Open it in Code::Blocks, select a MinGW-w64 compiler toolchain, then build either the **Debug** or **Release** target. This project configuration follows the same Code::Blocks structure used by the related Mini-Terminal project while adding the `ws2_32` Winsock dependency required by FakaApache.
-
-The Windows build initializes Winsock 2.2 before listening, uses `closesocket()` for socket cleanup, links against `ws2_32`, and retains all request-path, header-size, timeout, response-write, and concurrency protections of the POSIX build. The MinGW build scheduled for removal statically links the MinGW runtime and pthread support, while the MSVC build uses the normal Visual C++ runtime deployment model. The executable continues to read `siteconfig.fakaapache` from its working directory; run it from the repository root or provide an explicit `--config` path.
+The Windows build initializes Winsock 2.2, uses `closesocket()` for socket cleanup, and links against `ws2_32`. The executable continues to read `siteconfig.fakaapache` from its working directory; run it from the repository root or provide an explicit `--config` path.
 
 ## Configuration
 
@@ -125,4 +114,4 @@ These safeguards make the example safer for local experimentation, but they do n
 
 From ordinary Command Prompt, start FakaApache separately and run `tests\integration_test.cmd http://127.0.0.1:8080` (the URL defaults to that value). This curl-based test checks GET, HEAD, ranges, gzip negotiation, keep-alive headers, missing files, traversal and malformed URLs, unsupported methods, invalid ranges, and static POST rejection without requiring PowerShell. To test Basic Authentication too, set `FAKAAPACHE_AUTH_USER` and `FAKAAPACHE_AUTH_PASSWORD` before running it. Rate limiting, forwarding, and TLS require a separately configured server instance; use the PowerShell suite or a dedicated test configuration for those modes.
 
-On a POSIX host, run `make test` after building to execute the integration checks. The suite verifies successful static-file delivery, HEAD responses, range delivery, unsupported-method handling, missing-file handling, percent-encoded traversal rejection, malformed URL rejection, oversized-header rejection, and invalid-port validation. On Windows PowerShell, run `.\tests\integration_test.ps1` after building; it additionally checks gzip negotiation, Basic Authentication, and rate limiting. Configure a Windows build with CMake and build the `fakaapache` target to verify MSVC support. The MinGW cross-build scheduled for removal can still be checked separately with `make mingw`; executing the resulting Windows binary requires a Windows environment or compatible runtime.
+On a POSIX host, run `make test` after building to execute the integration checks. The suite verifies successful static-file delivery, HEAD responses, range delivery, unsupported-method handling, missing-file handling, percent-encoded traversal rejection, malformed URL rejection, oversized-header rejection, and invalid-port validation. On Windows PowerShell, run `.\tests\integration_test.ps1` after building; it additionally checks gzip negotiation, Basic Authentication, and rate limiting. Configure a Windows build with CMake and build the `fakaapache` target to verify MSVC support.

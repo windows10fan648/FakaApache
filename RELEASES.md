@@ -2,9 +2,9 @@
 
 This page records the public FakaApache releases. Downloadable artifacts are available from the repository’s [GitHub Releases page](https://github.com/windows10fan648/FakaApache/releases).
 
-## v1.0.0 — MinGW-w64 Windows release
+## v1.0.0 — Legacy Windows release
 
-Version **v1.0.0** is the first documented FakaApache release. It includes a prebuilt, 64-bit Windows console executable compiled with MinGW-w64, along with a complete portable bundle containing the default configuration, web root, and documentation.
+Version **v1.0.0** is the first documented FakaApache release. It includes the original prebuilt, 64-bit Windows console executable and a complete portable bundle containing the default configuration, web root, and documentation. Current Windows builds use MSVC and CMake.
 
 | Asset | Purpose |
 | --- | --- |
